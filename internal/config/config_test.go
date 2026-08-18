@@ -1,0 +1,104 @@
+package config
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// setEnv sets environment variables for the duration of the test and
+// restores the previous values afterwards, including unsetting variables
+// that were not previously set.
+func setEnv(t *testing.T, kv map[string]string) {
+	t.Helper()
+	for k, v := range kv {
+		t.Setenv(k, v)
+	}
+}
+
+func requiredEnv() map[string]string {
+	return map[string]string{
+		"POSTGRES_DATABASE":   "vibetype",
+		"POSTGRES_USER":       "vibetype_role_service_temporal_worker",
+		"POSTGRES_PASSWORD":   "hunter2",
+		"S3_BUCKET":           "maevsi-backups",
+		"S3_REGION":           "eu-central-1",
+		"S3_ACCESS_KEY_ID":    "AKIAEXAMPLE",
+		"S3_SECRET_ACCESS_KEY": "secret",
+	}
+}
+
+func TestLoad_Defaults(t *testing.T) {
+	setEnv(t, requiredEnv())
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, "temporal-server:7233", cfg.Temporal.HostPort)
+	assert.Equal(t, "default", cfg.Temporal.Namespace)
+	assert.Equal(t, "maevsi-jobs", cfg.Temporal.TaskQueue)
+	assert.Equal(t, ":9090", cfg.Metrics.Addr)
+	assert.Equal(t, "/metrics", cfg.Metrics.Path)
+	assert.Equal(t, 5432, cfg.Postgres.Port)
+	assert.Equal(t, "require", cfg.Postgres.SSLMode)
+	assert.Equal(t, "/backups", cfg.S3.SourceDir)
+	assert.Equal(t, "backups", cfg.S3.Prefix)
+	assert.Equal(t, 24*time.Hour, cfg.Schedule.DBBackupEvery)
+	assert.Equal(t, 2*time.Hour, cfg.Schedule.OutboxPurgeEvery)
+	assert.Equal(t, 24*time.Hour, cfg.Schedule.OutboxPurgeRetention)
+	assert.Empty(t, cfg.Sentry.DBBackupCheckInURL)
+	assert.Empty(t, cfg.Sentry.OutboxPurgeCheckInURL)
+}
+
+func TestLoad_Overrides(t *testing.T) {
+	env := requiredEnv()
+	env["TEMPORAL_HOST_PORT"] = "temporal.internal:7233"
+	env["TEMPORAL_NAMESPACE"] = "maevsi-prod"
+	env["OUTBOX_PURGE_SCHEDULE_EVERY"] = "10m"
+	env["SENTRY_CRONS"] = "https://sentry.example/api/0/cron/dbbackup/token/"
+	setEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, "temporal.internal:7233", cfg.Temporal.HostPort)
+	assert.Equal(t, "maevsi-prod", cfg.Temporal.Namespace)
+	assert.Equal(t, 10*time.Minute, cfg.Schedule.OutboxPurgeEvery)
+	assert.Equal(t, "https://sentry.example/api/0/cron/dbbackup/token/", cfg.Sentry.DBBackupCheckInURL)
+}
+
+func TestLoad_MissingRequired(t *testing.T) {
+	// Intentionally leave everything unset.
+	cfg, err := Load()
+	require.Error(t, err)
+	assert.Equal(t, Config{}, cfg)
+	assert.ErrorContains(t, err, "POSTGRES_DATABASE")
+	assert.ErrorContains(t, err, "S3_BUCKET")
+}
+
+func TestLoad_InvalidDuration(t *testing.T) {
+	env := requiredEnv()
+	env["DBBACKUP_SCHEDULE_EVERY"] = "not-a-duration"
+	setEnv(t, env)
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "DBBACKUP_SCHEDULE_EVERY")
+}
+
+func TestPostgres_DSN(t *testing.T) {
+	p := Postgres{
+		Host:     "pg.internal",
+		Port:     5432,
+		Database: "vibetype",
+		User:     "vibetype_role_service_temporal_worker",
+		Password: "hunter2",
+		SSLMode:  "require",
+	}
+	assert.Equal(t,
+		"host=pg.internal port=5432 dbname=vibetype user=vibetype_role_service_temporal_worker password=hunter2 sslmode=require",
+		p.DSN(),
+	)
+}
