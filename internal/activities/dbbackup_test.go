@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -23,18 +24,69 @@ type fakeS3 struct {
 	// existing simulates objects already present in the bucket, keyed by
 	// object key, valued by their content length.
 	existing map[string]int64
-	// uploaded records the bodies of every PutObject call, keyed by key.
+	// uploaded records the bodies of every PutObject or completed
+	// multipart upload, keyed by key.
 	uploaded map[string][]byte
+	// partBodies records the body uploaded by each UploadPart call, keyed
+	// by the fake ETag returned for that part.
+	partBodies map[string][]byte
+	// multipartCount is the number of CreateMultipartUpload calls made.
+	multipartCount int
+	// aborted records whether AbortMultipartUpload was ever called.
+	aborted bool
 
-	headErr error
-	putErr  error
+	headErr              error
+	putErr               error
+	createMultipartErr   error
+	uploadPartErr        error
+	completeMultipartErr error
 }
 
 func newFakeS3() *fakeS3 {
 	return &fakeS3{
-		existing: map[string]int64{},
-		uploaded: map[string][]byte{},
+		existing:   map[string]int64{},
+		uploaded:   map[string][]byte{},
+		partBodies: map[string][]byte{},
 	}
+}
+
+func (f *fakeS3) CreateMultipartUpload(_ context.Context, _ *s3.CreateMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CreateMultipartUploadOutput, error) {
+	if f.createMultipartErr != nil {
+		return nil, f.createMultipartErr
+	}
+	f.multipartCount++
+	id := fmt.Sprintf("upload-%d", f.multipartCount)
+	return &s3.CreateMultipartUploadOutput{UploadId: &id}, nil
+}
+
+func (f *fakeS3) UploadPart(_ context.Context, params *s3.UploadPartInput, _ ...func(*s3.Options)) (*s3.UploadPartOutput, error) {
+	if f.uploadPartErr != nil {
+		return nil, f.uploadPartErr
+	}
+	body, err := io.ReadAll(params.Body)
+	if err != nil {
+		return nil, err
+	}
+	etag := fmt.Sprintf("etag-%s-%d", *params.UploadId, *params.PartNumber)
+	f.partBodies[etag] = body
+	return &s3.UploadPartOutput{ETag: &etag}, nil
+}
+
+func (f *fakeS3) CompleteMultipartUpload(_ context.Context, params *s3.CompleteMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error) {
+	if f.completeMultipartErr != nil {
+		return nil, f.completeMultipartErr
+	}
+	var body []byte
+	for _, part := range params.MultipartUpload.Parts {
+		body = append(body, f.partBodies[*part.ETag]...)
+	}
+	f.uploaded[*params.Key] = body
+	return &s3.CompleteMultipartUploadOutput{}, nil
+}
+
+func (f *fakeS3) AbortMultipartUpload(_ context.Context, _ *s3.AbortMultipartUploadInput, _ ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error) {
+	f.aborted = true
+	return &s3.AbortMultipartUploadOutput{}, nil
 }
 
 func (f *fakeS3) HeadObject(_ context.Context, params *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
@@ -140,6 +192,52 @@ func TestDBBackup_MissingConfigIsNonRetryableConfigError(t *testing.T) {
 	_, err := runActivity(t, a.DBBackup, DBBackupInput{})
 	require.Error(t, err)
 	assertApplicationErrorType(t, err, ErrTypeConfig)
+}
+
+func TestDBBackup_MultipartUploadForLargeFiles(t *testing.T) {
+	origLimit, origChunk := putObjectSizeLimit, multipartChunkSize
+	putObjectSizeLimit = 20
+	multipartChunkSize = 10
+	t.Cleanup(func() {
+		putObjectSizeLimit = origLimit
+		multipartChunkSize = origChunk
+	})
+
+	dir := t.TempDir()
+	content := "0123456789abcdefghijklmnopqrstuvwxyz" // 37 bytes: over the 20-byte limit, spans 4 parts of 10
+	writeFile(t, dir, "huge.sql", content)
+
+	fake := newFakeS3()
+	a := &Activities{S3: fake, Bucket: "b", Prefix: "backups", SourceDir: dir}
+
+	result, err := runActivity(t, a.DBBackup, DBBackupInput{})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, result.FilesUploaded)
+	assert.Equal(t, []byte(content), fake.uploaded["backups/huge.sql"])
+	assert.Equal(t, 1, fake.multipartCount)
+	assert.False(t, fake.aborted)
+}
+
+func TestDBBackup_MultipartUploadAbortsOnPartFailure(t *testing.T) {
+	origLimit, origChunk := putObjectSizeLimit, multipartChunkSize
+	putObjectSizeLimit = 5
+	multipartChunkSize = 5
+	t.Cleanup(func() {
+		putObjectSizeLimit = origLimit
+		multipartChunkSize = origChunk
+	})
+
+	dir := t.TempDir()
+	writeFile(t, dir, "huge.sql", "0123456789")
+
+	fake := newFakeS3()
+	fake.uploadPartErr = assert.AnError
+
+	a := &Activities{S3: fake, Bucket: "b", Prefix: "backups", SourceDir: dir}
+	_, err := runActivity(t, a.DBBackup, DBBackupInput{})
+	require.Error(t, err)
+	assert.True(t, fake.aborted)
 }
 
 func TestDBBackup_PutObjectErrorFailsActivity(t *testing.T) {

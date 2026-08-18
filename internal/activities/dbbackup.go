@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,14 +13,24 @@ import (
 
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 )
 
+// putObjectSizeLimit is S3's hard cap on a single PutObject request; larger files must go through a multipart upload instead.
+// A var rather than a const so tests can lower it to exercise the multipart path without uploading gigabytes of fixture data.
+var putObjectSizeLimit int64 = 5 * 1024 * 1024 * 1024 // 5 GiB
+
+// multipartChunkSize is the size of each part in a multipart upload.
+// S3 requires every part but the last to be at least 5 MiB and allows at most 10,000 parts per upload, so 100 MiB supports files up to roughly 976 GiB without tuning.
+// A var for the same testability reason as putObjectSizeLimit.
+var multipartChunkSize int64 = 100 * 1024 * 1024 // 100 MiB
+
 // DBBackup reproduces the original `aws s3 sync /backups s3://<bucket>/backups` jobber command: it walks SourceDir and uploads every file that is missing from the bucket or whose size differs from what is already there, mirroring the default (no --delete) behavior of `aws s3 sync`.
 //
 // Unlike the shell command, matching is done by comparing file size via HeadObject rather than the CLI's size+mtime heuristic; this is a deliberate simplification documented in the README.
-// Files larger than S3's single-PUT limit (5 GiB) are not supported; a multipart upload via aws-sdk-go-v2/feature/s3/manager would be a natural follow-up if backups grow past that.
+// Files larger than S3's single-PUT limit (5 GiB) are uploaded via S3's multipart upload API instead of a single PutObject.
 func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupResult, error) {
 	logger := activity.GetLogger(ctx)
 	start := time.Now()
@@ -85,7 +96,11 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 			return fmt.Errorf("open %q: %w", path, err)
 		}
 
-		if _, err := a.S3.PutObject(ctx, &s3.PutObjectInput{
+		if fileInfo.Size() > putObjectSizeLimit {
+			if err := a.multipartUpload(ctx, key, f, fileInfo.Size()); err != nil {
+				return fmt.Errorf("multipart upload %q to s3://%s/%s: %w", path, a.Bucket, key, err)
+			}
+		} else if _, err := a.S3.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: &a.Bucket,
 			Key:    &key,
 			Body:   f,
@@ -135,6 +150,81 @@ func (a *Activities) needsUpload(ctx context.Context, key string, localSize int6
 		return true, nil
 	}
 	return false, nil
+}
+
+// multipartUpload uploads r (of the given total size) to key using S3's multipart upload API, required for files larger than putObjectSizeLimit.
+// It aborts the upload on any failure so S3 doesn't keep billing storage for an incomplete upload.
+func (a *Activities) multipartUpload(ctx context.Context, key string, r io.Reader, size int64) error {
+	created, err := a.S3.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
+		Bucket: &a.Bucket,
+		Key:    &key,
+	})
+	if err != nil {
+		return fmt.Errorf("create multipart upload: %w", err)
+	}
+	uploadID := created.UploadId
+
+	parts, err := a.uploadParts(ctx, key, *uploadID, r, size)
+	if err != nil {
+		if _, abortErr := a.S3.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+			Bucket:   &a.Bucket,
+			Key:      &key,
+			UploadId: uploadID,
+		}); abortErr != nil {
+			return fmt.Errorf("%w (also failed to abort multipart upload: %v)", err, abortErr)
+		}
+		return err
+	}
+
+	if _, err := a.S3.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
+		Bucket:          &a.Bucket,
+		Key:             &key,
+		UploadId:        uploadID,
+		MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
+	}); err != nil {
+		return fmt.Errorf("complete multipart upload: %w", err)
+	}
+	return nil
+}
+
+// uploadParts uploads r in multipartChunkSize chunks, returning the completed part list CompleteMultipartUpload needs.
+func (a *Activities) uploadParts(ctx context.Context, key, uploadID string, r io.Reader, size int64) ([]types.CompletedPart, error) {
+	var parts []types.CompletedPart
+	remaining := size
+	for partNumber := int32(1); remaining > 0; partNumber++ {
+		n := min(remaining, multipartChunkSize)
+
+		// Long uploads must heartbeat so the Temporal server can detect a
+		// dead worker via HeartbeatTimeout instead of waiting out the
+		// full StartToCloseTimeout.
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("%s part %d", key, partNumber))
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		// pn is a fresh variable per iteration: PartNumber below is
+		// stored by pointer in the returned parts slice, and taking
+		// &partNumber directly would alias the same loop variable
+		// across every part.
+		pn := partNumber
+		out, err := a.S3.UploadPart(ctx, &s3.UploadPartInput{
+			Bucket:        &a.Bucket,
+			Key:           &key,
+			UploadId:      &uploadID,
+			PartNumber:    &pn,
+			Body:          io.LimitReader(r, n),
+			ContentLength: &n,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("upload part %d: %w", partNumber, err)
+		}
+
+		parts = append(parts, types.CompletedPart{ETag: out.ETag, PartNumber: &pn})
+		remaining -= n
+	}
+	return parts, nil
 }
 
 // isNotFound reports whether err represents an S3 404 response, whether or
