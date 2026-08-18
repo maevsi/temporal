@@ -1,12 +1,7 @@
 // Package config loads worker configuration from environment variables.
 //
-// Every setting is read from the environment rather than from files, so this
-// package intentionally does not know anything about the Docker Swarm
-// secrets convention (files mounted under /run/secrets/*) used by the
-// maevsi stack in production. Whatever injects the environment for this
-// process (a compose "secrets" mapping, a systemd EnvironmentFile, a plain
-// .env in local dev) is responsible for turning those secrets into the
-// environment variables documented below and in the README.
+// Every setting is read from the environment rather than from files, so this package intentionally does not know anything about the Docker Swarm secrets convention (files mounted under /run/secrets/*) used by the maevsi stack in production.
+// Whatever injects the environment for this process (a compose "secrets" mapping, a systemd EnvironmentFile, a plain .env in local dev) is responsible for turning those secrets into the environment variables documented below and in the README.
 package config
 
 import (
@@ -30,8 +25,8 @@ type Config struct {
 // Temporal holds the connection details for the self-hosted Temporal
 // Server (not Temporal Cloud) this worker talks to.
 type Temporal struct {
-	// HostPort is the address of the Temporal frontend service, e.g.
-	// "temporal-server:7233". Matches client.Options.HostPort.
+	// HostPort is the address of the Temporal frontend service, e.g. "temporal-server:7233".
+	// Matches client.Options.HostPort.
 	HostPort string
 	// Namespace is the Temporal namespace to operate in.
 	Namespace string
@@ -59,8 +54,8 @@ type Postgres struct {
 	Database string
 	User     string
 	Password string
-	// SSLMode is passed through to pgx verbatim (e.g. "disable", "require",
-	// "verify-full"). Defaults to "require".
+	// SSLMode is passed through to pgx verbatim (e.g. "disable", "require", "verify-full").
+	// Defaults to "require".
 	SSLMode string
 }
 
@@ -81,8 +76,8 @@ type S3 struct {
 	Region          string
 	AccessKeyID     string
 	SecretAccessKey string
-	// Endpoint overrides the default AWS endpoint, for S3-compatible
-	// object storage. Leave empty to use AWS S3 itself.
+	// Endpoint overrides the default AWS endpoint, for S3-compatible object storage.
+	// Leave empty to use AWS S3 itself.
 	Endpoint string
 	// UsePathStyle forces path-style addressing, typically required by
 	// non-AWS S3-compatible endpoints.
@@ -107,8 +102,8 @@ type Sentry struct {
 // They default to the original jobber cadences (daily / every 2 hours) but
 // are configurable so they can be tightened for local testing.
 type Schedule struct {
-	DBBackupEvery       time.Duration
-	OutboxPurgeEvery    time.Duration
+	DBBackupEvery        time.Duration
+	OutboxPurgeEvery     time.Duration
 	OutboxPurgeRetention time.Duration
 }
 

@@ -13,14 +13,10 @@ import (
 //
 //	DELETE FROM vibetype_private.outbox WHERE created_at < now() - interval '24 hours'
 //
-// against the org's central Postgres instance, via the dedicated
-// vibetype_role_service_* role configured for this worker. The retention
-// window comes from input.Retention if set, otherwise from the Activities'
-// configured default (OUTBOX_PURGE_RETENTION, defaulting to 24h).
+// against the org's central Postgres instance, via the dedicated vibetype_role_service_* role configured for this worker.
+// The retention window comes from input.Retention if set, otherwise from the Activities' configured default (OUTBOX_PURGE_RETENTION, defaulting to 24h).
 //
-// The interval is passed as a bound parameter cast to ::interval rather
-// than interpolated into the query text, so it is always valid regardless
-// of the configured duration's units.
+// The interval is passed as a bound parameter cast to ::interval rather than interpolated into the query text, so it is always valid regardless of the configured duration's units.
 func (a *Activities) OutboxPurge(ctx context.Context, input OutboxPurgeInput) (OutboxPurgeResult, error) {
 	logger := activity.GetLogger(ctx)
 
@@ -63,9 +59,8 @@ func pgIntervalLiteral(d time.Duration) string {
 	return fmt.Sprintf("%d seconds", int64(d.Seconds()))
 }
 
-// quoteIdent double-quotes a Postgres identifier and escapes embedded
-// quotes. Schema/table names come from this service's own configuration,
-// not user input, but quoting them keeps the query well-formed regardless.
+// quoteIdent double-quotes a Postgres identifier and escapes embedded quotes.
+// Schema/table names come from this service's own configuration, not user input, but quoting them keeps the query well-formed regardless.
 func quoteIdent(ident string) string {
 	escaped := ""
 	for _, r := range ident {

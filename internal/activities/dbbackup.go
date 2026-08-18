@@ -16,17 +16,10 @@ import (
 	"go.temporal.io/sdk/temporal"
 )
 
-// DBBackup reproduces the original `aws s3 sync /backups s3://<bucket>/backups`
-// jobber command: it walks SourceDir and uploads every file that is
-// missing from the bucket or whose size differs from what is already
-// there, mirroring the default (no --delete) behavior of `aws s3 sync`.
+// DBBackup reproduces the original `aws s3 sync /backups s3://<bucket>/backups` jobber command: it walks SourceDir and uploads every file that is missing from the bucket or whose size differs from what is already there, mirroring the default (no --delete) behavior of `aws s3 sync`.
 //
-// Unlike the shell command, matching is done by comparing file size via
-// HeadObject rather than the CLI's size+mtime heuristic; this is a
-// deliberate simplification documented in the README. Files larger than S3's
-// single-PUT limit (5 GiB) are not supported; a multipart upload via
-// aws-sdk-go-v2/feature/s3/manager would be a natural follow-up if backups
-// grow past that.
+// Unlike the shell command, matching is done by comparing file size via HeadObject rather than the CLI's size+mtime heuristic; this is a deliberate simplification documented in the README.
+// Files larger than S3's single-PUT limit (5 GiB) are not supported; a multipart upload via aws-sdk-go-v2/feature/s3/manager would be a natural follow-up if backups grow past that.
 func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupResult, error) {
 	logger := activity.GetLogger(ctx)
 	start := time.Now()

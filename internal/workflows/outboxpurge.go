@@ -10,18 +10,14 @@ import (
 	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
 )
 
-// OutboxPurgeWorkflow orchestrates the OutboxPurge activity, replacing the
-// jobber job that ran
+// OutboxPurgeWorkflow orchestrates the OutboxPurge activity, replacing the jobber job that ran
 //
 //	DELETE FROM vibetype_private.outbox WHERE created_at < now() - interval '24 hours'
 //
-// every two hours. Unlike the jobber job (which was blocked because that
-// image had no psql client), this executes the DELETE directly over a
-// dedicated pgx connection pool.
+// every two hours.
+// Unlike the jobber job (which was blocked because that image had no psql client), this executes the DELETE directly over a dedicated pgx connection pool.
 //
-// The activity itself is short (a single DELETE), so timeouts here are
-// tight; ConfigError failures are marked non-retryable since retrying a
-// misconfigured schema/table name can't help.
+// The activity itself is short (a single DELETE), so timeouts here are tight; ConfigError failures are marked non-retryable since retrying a misconfigured schema/table name can't help.
 func OutboxPurgeWorkflow(ctx workflow.Context) (activities.OutboxPurgeResult, error) {
 	checkIn(ctx, activities.JobOutboxPurge, sentrycrons.StatusInProgress)
 

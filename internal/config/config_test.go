@@ -20,12 +20,12 @@ func setEnv(t *testing.T, kv map[string]string) {
 
 func requiredEnv() map[string]string {
 	return map[string]string{
-		"POSTGRES_DATABASE":   "vibetype",
-		"POSTGRES_USER":       "vibetype_role_service_temporal_worker",
-		"POSTGRES_PASSWORD":   "hunter2",
-		"S3_BUCKET":           "maevsi-backups",
-		"S3_REGION":           "eu-central-1",
-		"S3_ACCESS_KEY_ID":    "AKIAEXAMPLE",
+		"POSTGRES_DATABASE":    "vibetype",
+		"POSTGRES_USER":        "vibetype_role_service_temporal_worker",
+		"POSTGRES_PASSWORD":    "hunter2",
+		"S3_BUCKET":            "maevsi-backups",
+		"S3_REGION":            "eu-central-1",
+		"S3_ACCESS_KEY_ID":     "AKIAEXAMPLE",
 		"S3_SECRET_ACCESS_KEY": "secret",
 	}
 }

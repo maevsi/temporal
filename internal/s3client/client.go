@@ -16,9 +16,8 @@ import (
 	"github.com/maevsi/temporal-worker-go/internal/config"
 )
 
-// New builds an *s3.Client (which satisfies activities.S3API) from the
-// given configuration. Endpoint/UsePathStyle support S3-compatible object
-// storage in addition to AWS S3 itself.
+// New builds an *s3.Client (which satisfies activities.S3API) from the given configuration.
+// Endpoint/UsePathStyle support S3-compatible object storage in addition to AWS S3 itself.
 func New(ctx context.Context, cfg config.S3) (*s3.Client, error) {
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion(cfg.Region),

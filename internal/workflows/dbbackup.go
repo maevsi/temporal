@@ -1,10 +1,5 @@
-// Package workflows implements the two Temporal Workflows that replace
-// jobber's DBBackup and OutboxPurge cron jobs. Workflows only orchestrate:
-// all real work (S3 upload, Postgres DELETE, Sentry HTTP calls) lives in
-// internal/activities, reached here purely through method-expression
-// references (see the package doc comment on activities.Activities) so
-// this package never links against the AWS/pgx/HTTP dependencies those
-// activities use.
+// Package workflows implements the two Temporal Workflows that replace jobber's DBBackup and OutboxPurge cron jobs.
+// Workflows only orchestrate: all real work (S3 upload, Postgres DELETE, Sentry HTTP calls) lives in internal/activities, reached here purely through method-expression references (see the package doc comment on activities.Activities) so this package never links against the AWS/pgx/HTTP dependencies those activities use.
 package workflows
 
 import (
@@ -17,9 +12,7 @@ import (
 	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
 )
 
-// checkInActivityOptions are deliberately short and cheap to retry: a
-// Sentry Crons check-in should never be the reason a workflow run takes
-// long or ties up worker capacity.
+// checkInActivityOptions are deliberately short and cheap to retry: a Sentry Crons check-in should never be the reason a workflow run takes long or ties up worker capacity.
 func checkInActivityOptions(ctx workflow.Context) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Second,
@@ -32,9 +25,7 @@ func checkInActivityOptions(ctx workflow.Context) workflow.Context {
 	})
 }
 
-// checkIn sends a Sentry Crons check-in and treats failure as best-effort:
-// alerting must never fail the underlying backup or purge, so the error is
-// logged rather than returned.
+// checkIn sends a Sentry Crons check-in and treats failure as best-effort: alerting must never fail the underlying backup or purge, so the error is logged rather than returned.
 func checkIn(ctx workflow.Context, job activities.Job, status sentrycrons.Status) {
 	var a *activities.Activities
 	err := workflow.ExecuteActivity(checkInActivityOptions(ctx), a.SentryCheckIn, activities.SentryCheckInInput{
@@ -46,13 +37,8 @@ func checkIn(ctx workflow.Context, job activities.Job, status sentrycrons.Status
 	}
 }
 
-// DBBackupWorkflow orchestrates the DBBackup activity, replacing the
-// jobber job that ran `aws s3 sync /backups s3://<bucket>/backups` daily.
-// A single sync of a bucket's worth of database backups can legitimately
-// take a while, so the activity gets a generous StartToCloseTimeout and a
-// HeartbeatTimeout so a dead worker is detected well before that timeout
-// expires; ConfigError failures (bad bucket, missing source dir) are
-// marked non-retryable since retrying them can't help.
+// DBBackupWorkflow orchestrates the DBBackup activity, replacing the jobber job that ran `aws s3 sync /backups s3://<bucket>/backups` daily.
+// A single sync of a bucket's worth of database backups can legitimately take a while, so the activity gets a generous StartToCloseTimeout and a HeartbeatTimeout so a dead worker is detected well before that timeout expires; ConfigError failures (bad bucket, missing source dir) are marked non-retryable since retrying them can't help.
 func DBBackupWorkflow(ctx workflow.Context) (activities.DBBackupResult, error) {
 	checkIn(ctx, activities.JobDBBackup, sentrycrons.StatusInProgress)
 

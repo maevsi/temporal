@@ -30,10 +30,8 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// New returns a Client for the given check-in URL. An empty URL is valid
-// and produces a Client whose CheckIn calls are no-ops; this matches
-// environments (e.g. local development) that historically relied on email
-// notifications instead of Sentry.
+// New returns a Client for the given check-in URL.
+// An empty URL is valid and produces a Client whose CheckIn calls are no-ops; this matches environments (e.g. local development) that historically relied on email notifications instead of Sentry.
 func New(checkInURL string) *Client {
 	return &Client{
 		checkInURL: checkInURL,
@@ -47,9 +45,8 @@ func (c *Client) Configured() bool {
 	return c != nil && c.checkInURL != ""
 }
 
-// CheckIn reports the given status to Sentry Crons. It is a no-op (nil
-// error) if the client has no check-in URL configured, so callers do not
-// need to branch on configuration before calling it.
+// CheckIn reports the given status to Sentry Crons.
+// It is a no-op (nil error) if the client has no check-in URL configured, so callers do not need to branch on configuration before calling it.
 func (c *Client) CheckIn(ctx context.Context, status Status) error {
 	if !c.Configured() {
 		return nil

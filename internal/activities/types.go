@@ -17,24 +17,20 @@ const (
 	JobOutboxPurge Job = "outbox_purge"
 )
 
-// Activity name constants. Workflows reference activities by these names
-// (via method-expression registration, see Activities) rather than by
-// importing the concrete Activities implementation, keeping workflow code
-// decoupled from the S3/Postgres/Sentry dependencies the activities need.
+// Activity name constants.
+// Workflows reference activities by these names (via method-expression registration, see Activities) rather than by importing the concrete Activities implementation, keeping workflow code decoupled from the S3/Postgres/Sentry dependencies the activities need.
 const (
-	ActivityNameDBBackup     = "DBBackup"
-	ActivityNameOutboxPurge  = "OutboxPurge"
+	ActivityNameDBBackup      = "DBBackup"
+	ActivityNameOutboxPurge   = "OutboxPurge"
 	ActivityNameSentryCheckIn = "SentryCheckIn"
 )
 
-// ErrTypeConfig is the ApplicationError type used for configuration
-// problems (bad bucket name, unreachable source directory, ...) that will
-// never succeed on retry. Pair with temporal.RetryPolicy.NonRetryableErrorTypes.
+// ErrTypeConfig is the ApplicationError type used for configuration problems (bad bucket name, unreachable source directory, ...) that will never succeed on retry.
+// Pair with temporal.RetryPolicy.NonRetryableErrorTypes.
 const ErrTypeConfig = "ConfigError"
 
-// DBBackupInput is the input to the DBBackup activity. Empty today; kept
-// as a named struct so new parameters (e.g. an explicit source override)
-// can be added without breaking the activity's serialized signature.
+// DBBackupInput is the input to the DBBackup activity.
+// Empty today; kept as a named struct so new parameters (e.g. an explicit source override) can be added without breaking the activity's serialized signature.
 type DBBackupInput struct{}
 
 // DBBackupResult summarizes the outcome of a DBBackup activity run.

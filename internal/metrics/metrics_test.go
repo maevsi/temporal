@@ -1,0 +1,74 @@
+package metrics
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestNew_ExposesTemporalHandlerAndHTTPHandler(t *testing.T) {
+	h := New("temporal_worker_test")
+	defer h.Close()
+
+	require.NotNil(t, h.Temporal)
+	require.NotNil(t, h.HTTP)
+
+	// Emit a metric through the Temporal-facing handler and confirm it
+	// shows up on the Prometheus HTTP handler, proving the two are wired
+	// to the same underlying registry.
+	h.Temporal.WithTags(map[string]string{}).Counter("smoke_test_total").Inc(1)
+
+	// tally's reporting loop flushes on its own interval; give it a moment.
+	time.Sleep(reportingInterval + 200*time.Millisecond)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	h.HTTP.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body, err := io.ReadAll(rec.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "smoke_test_total")
+}
+
+func TestServe_ShutsDownOnContextCancel(t *testing.T) {
+	h := New("temporal_worker_test_serve")
+	defer h.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(ctx, "127.0.0.1:0", "/metrics", h)
+	}()
+
+	// Serve binds an ephemeral port here only to exercise the shutdown
+	// path; a fixed test port would risk collisions across CI runs.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not shut down after context cancellation")
+	}
+}
+
+func TestServe_RejectsInvalidAddr(t *testing.T) {
+	h := New("temporal_worker_test_bad_addr")
+	defer h.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := Serve(ctx, "not-a-valid-addr", "/metrics", h)
+	require.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(), "metrics: serve"))
+}
