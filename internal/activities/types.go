@@ -17,14 +17,6 @@ const (
 	JobOutboxPurge Job = "outbox_purge"
 )
 
-// Activity name constants.
-// Workflows reference activities by these names (via method-expression registration, see Activities) rather than by importing the concrete Activities implementation, keeping workflow code decoupled from the S3/Postgres/Sentry dependencies the activities need.
-const (
-	ActivityNameDBBackup      = "DBBackup"
-	ActivityNameOutboxPurge   = "OutboxPurge"
-	ActivityNameSentryCheckIn = "SentryCheckIn"
-)
-
 // ErrTypeConfig is the ApplicationError type used for configuration problems (bad bucket name, unreachable source directory, ...) that will never succeed on retry.
 // Pair with temporal.RetryPolicy.NonRetryableErrorTypes.
 const ErrTypeConfig = "ConfigError"
