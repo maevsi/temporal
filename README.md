@@ -184,9 +184,9 @@ Both stages have been built and run locally: `--target test` runs the full lint/
 ## Known simplifications
 
 - **DBBackup's diffing** compares local file size against S3's `HeadObject` `ContentLength` per file, rather than the AWS CLI's default size+mtime heuristic.
-  Close enough for backup files that are either new or fully rewritten, but not byte-for-byte equivalent to `aws s3 sync`.
-- **DBBackup uploads via a single `PutObject`** per file rather than a multipart upload, so it does not support files over S3's 5 GiB single-PUT limit.
-  `aws-sdk-go-v2/feature/s3/manager.Uploader` would be the natural follow-up if backups grow past that.
+  This isn't just a simplification: dump files get a fresh mtime on every regeneration regardless of whether their content changed, so an mtime check would force a re-upload on every single run and defeat the point of diffing entirely.
+  Size-only is close enough for backup files that are either new or fully rewritten, but not byte-for-byte equivalent to `aws s3 sync`.
+- **DBBackup uploads through `aws-sdk-go-v2/feature/s3/transfermanager`**, which transparently switches to a multipart upload above S3's 5 GiB single-`PutObject` limit.
 - **Schedules are bootstrapped once and never updated** by this worker.
   Changing a cadence via `DBBACKUP_SCHEDULE_EVERY`/`OUTBOX_PURGE_SCHEDULE_EVERY` after the Schedule already exists requires deleting it first (`temporal schedule delete`) or updating it out-of-band; this is a deliberate choice so an operator's manual Schedule edits are never silently overwritten on redeploy.
 
