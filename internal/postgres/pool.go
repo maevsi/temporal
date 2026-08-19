@@ -14,7 +14,7 @@ import (
 
 // NewPool opens a connection pool using the given configuration.
 // Callers own the returned pool and must Close it on shutdown.
-func NewPool(ctx context.Context, cfg config.Postgres) (*pgxpool.Pool, error) {
+func NewPool(ctx context.Context, cfg *config.Postgres) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, cfg.DSN())
 	if err != nil {
 		return nil, fmt.Errorf("postgres: create pool: %w", err)

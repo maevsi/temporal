@@ -52,8 +52,7 @@ func TestCheckIn_NonOKStatusIsError(t *testing.T) {
 }
 
 func TestCheckIn_UnconfiguredIsNoOp(t *testing.T) {
-	var c *Client
-	c = New("")
+	c := New("")
 	err := c.CheckIn(context.Background(), StatusOK)
 	require.NoError(t, err)
 	assert.False(t, c.Configured())

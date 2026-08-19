@@ -86,6 +86,7 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 		if err != nil {
 			return fmt.Errorf("open %q: %w", path, err)
 		}
+		defer func() { _ = f.Close() }()
 
 		if _, err := uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
 			Bucket: &a.Bucket,

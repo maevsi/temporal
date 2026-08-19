@@ -24,7 +24,8 @@ func testConfig() config.Config {
 }
 
 func TestDBBackupSchedule_UsesIntervalNotCron(t *testing.T) {
-	opts := dbBackupSchedule(testConfig())
+	cfg := testConfig()
+	opts := dbBackupSchedule(&cfg)
 
 	assert.Equal(t, IDDBBackup, opts.ID)
 	assert.Empty(t, opts.Spec.CronExpressions, "schedule must use native Intervals, not cron strings")
@@ -38,7 +39,8 @@ func TestDBBackupSchedule_UsesIntervalNotCron(t *testing.T) {
 }
 
 func TestOutboxPurgeSchedule_UsesIntervalNotCron(t *testing.T) {
-	opts := outboxPurgeSchedule(testConfig())
+	cfg := testConfig()
+	opts := outboxPurgeSchedule(&cfg)
 
 	assert.Equal(t, IDOutboxPurge, opts.ID)
 	assert.Empty(t, opts.Spec.CronExpressions)

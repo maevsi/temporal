@@ -15,7 +15,7 @@ import (
 
 func TestNew_ExposesTemporalHandlerAndHTTPHandler(t *testing.T) {
 	h := New("temporal_worker_test")
-	defer h.Close()
+	defer func() { _ = h.Close() }()
 
 	require.NotNil(t, h.Temporal)
 	require.NotNil(t, h.HTTP)
@@ -29,7 +29,7 @@ func TestNew_ExposesTemporalHandlerAndHTTPHandler(t *testing.T) {
 	time.Sleep(reportingInterval + 200*time.Millisecond)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
 	h.HTTP.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -40,7 +40,7 @@ func TestNew_ExposesTemporalHandlerAndHTTPHandler(t *testing.T) {
 
 func TestServe_ShutsDownOnContextCancel(t *testing.T) {
 	h := New("temporal_worker_test_serve")
-	defer h.Close()
+	defer func() { _ = h.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -63,7 +63,7 @@ func TestServe_ShutsDownOnContextCancel(t *testing.T) {
 
 func TestServe_RejectsInvalidAddr(t *testing.T) {
 	h := New("temporal_worker_test_bad_addr")
-	defer h.Close()
+	defer func() { _ = h.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

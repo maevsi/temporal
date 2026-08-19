@@ -73,7 +73,7 @@ func (c *Client) CheckIn(ctx context.Context, status Status) error {
 	q.Set("status", string(status))
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), http.NoBody)
 	if err != nil {
 		return fmt.Errorf("sentrycrons: build check-in request: %w", err)
 	}

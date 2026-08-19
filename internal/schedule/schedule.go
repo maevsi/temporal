@@ -29,8 +29,8 @@ const (
 
 // EnsureAll idempotently creates both Schedules if they don't already exist.
 // It never modifies an existing Schedule (e.g. one paused or re-tuned by an operator via the Temporal CLI/UI), matching the bootstrap-once semantics appropriate for a worker that starts on every deploy.
-func EnsureAll(ctx context.Context, c client.Client, cfg config.Config) error {
-	specs := []client.ScheduleOptions{
+func EnsureAll(ctx context.Context, c client.Client, cfg *config.Config) error {
+	specs := []*client.ScheduleOptions{
 		dbBackupSchedule(cfg),
 		outboxPurgeSchedule(cfg),
 	}
@@ -42,7 +42,7 @@ func EnsureAll(ctx context.Context, c client.Client, cfg config.Config) error {
 	return nil
 }
 
-func ensure(ctx context.Context, c client.Client, opts client.ScheduleOptions) error {
+func ensure(ctx context.Context, c client.Client, opts *client.ScheduleOptions) error {
 	handle := c.ScheduleClient().GetHandle(ctx, opts.ID)
 	if _, err := handle.Describe(ctx); err == nil {
 		// Already exists; leave whatever an operator has configured alone.
@@ -51,7 +51,7 @@ func ensure(ctx context.Context, c client.Client, opts client.ScheduleOptions) e
 		return fmt.Errorf("schedule: describe %q: %w", opts.ID, err)
 	}
 
-	if _, err := c.ScheduleClient().Create(ctx, opts); err != nil {
+	if _, err := c.ScheduleClient().Create(ctx, *opts); err != nil {
 		if status.Code(err) == codes.AlreadyExists {
 			// Another replica created it between our Describe and Create; safe to ignore.
 			return nil
@@ -66,8 +66,8 @@ func isNotFound(err error) bool {
 	return errors.As(err, &nf)
 }
 
-func dbBackupSchedule(cfg config.Config) client.ScheduleOptions {
-	return client.ScheduleOptions{
+func dbBackupSchedule(cfg *config.Config) *client.ScheduleOptions {
+	return &client.ScheduleOptions{
 		ID: IDDBBackup,
 		Spec: client.ScheduleSpec{
 			Intervals: []client.ScheduleIntervalSpec{{Every: cfg.Schedule.DBBackupEvery}},
@@ -83,8 +83,8 @@ func dbBackupSchedule(cfg config.Config) client.ScheduleOptions {
 	}
 }
 
-func outboxPurgeSchedule(cfg config.Config) client.ScheduleOptions {
-	return client.ScheduleOptions{
+func outboxPurgeSchedule(cfg *config.Config) *client.ScheduleOptions {
+	return &client.ScheduleOptions{
 		ID: IDOutboxPurge,
 		Spec: client.ScheduleSpec{
 			Intervals: []client.ScheduleIntervalSpec{{Every: cfg.Schedule.OutboxPurgeEvery}},

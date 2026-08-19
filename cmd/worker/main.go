@@ -95,7 +95,11 @@ func run(logger *slog.Logger) error {
 	}
 
 	metricsHandler := metrics.New("temporal_worker")
-	defer metricsHandler.Close()
+	defer func() {
+		if err := metricsHandler.Close(); err != nil {
+			logger.Error("close metrics handler", "error", err)
+		}
+	}()
 
 	metricsCtx, stopMetrics := context.WithCancel(ctx)
 	defer stopMetrics()
@@ -116,13 +120,13 @@ func run(logger *slog.Logger) error {
 	}
 	defer temporalClient.Close()
 
-	pgPool, err := postgres.NewPool(ctx, cfg.Postgres)
+	pgPool, err := postgres.NewPool(ctx, &cfg.Postgres)
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}
 	defer pgPool.Close()
 
-	s3Client, err := s3client.New(ctx, cfg.S3)
+	s3Client, err := s3client.New(ctx, &cfg.S3)
 	if err != nil {
 		return fmt.Errorf("build s3 client: %w", err)
 	}
@@ -142,7 +146,7 @@ func run(logger *slog.Logger) error {
 		SentryOutboxPurge: sentrycrons.New(cfg.Sentry.OutboxPurgeCheckInURL),
 	}
 
-	if err := schedule.EnsureAll(ctx, temporalClient, cfg); err != nil {
+	if err := schedule.EnsureAll(ctx, temporalClient, &cfg); err != nil {
 		return fmt.Errorf("ensure schedules: %w", err)
 	}
 
