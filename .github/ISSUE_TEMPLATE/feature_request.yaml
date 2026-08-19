@@ -1,0 +1,10 @@
+name: Feature Request
+description: Suggest a feature for temporal-worker-go
+type: feature
+body:
+  - type: textarea
+    attributes:
+      label: Description
+      description: What feature would you like?
+    validations:
+      required: true

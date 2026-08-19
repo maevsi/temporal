@@ -52,14 +52,11 @@ COPY ./ ./
 ########################
 # Lint code.
 
-FROM prepare AS lint
+FROM golangci/golangci-lint:v2.12.2-alpine AS lint
 
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    go vet ./...
+WORKDIR /srv/app/
+COPY --from=prepare /srv/app/ ./
+RUN golangci-lint run ./...
 
 
 ########################

@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - renovate/**
+
+permissions: {}
+
+jobs:
+  ci-optimization:
+    name: CI optimization
+    uses: dargmuesli/github-actions/.github/workflows/ci-optimization.yml@e9c9cf391baeb261cf62c0af6c4af2245bae0662 # 5.9.2
+    permissions:
+      pull-requests: read
+  release_semantic_dry:
+    needs: ci-optimization
+    if: needs.ci-optimization.outputs.continue == 'true'
+    name: Release (semantic, dry)
+    uses: dargmuesli/github-actions/.github/workflows/release-semantic.yml@e9c9cf391baeb261cf62c0af6c4af2245bae0662 # 5.9.2
+    permissions:
+      contents: write
+      id-token: write
+    secrets:
+      PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+    with:
+      DRY_RUN: true
+  build:
+    name: Build
+    uses: dargmuesli/github-actions/.github/workflows/docker.yml@e9c9cf391baeb261cf62c0af6c4af2245bae0662 # 5.9.2
+    needs: release_semantic_dry
+    permissions:
+      packages: write
+    with:
+      TAG: ${{ (needs.release_semantic_dry.outputs.new_release_version != null) && needs.release_semantic_dry.outputs.new_release_version || '' }}
+  release_semantic:
+    needs: build
+    name: Release (semantic)
+    uses: dargmuesli/github-actions/.github/workflows/release-semantic.yml@e9c9cf391baeb261cf62c0af6c4af2245bae0662 # 5.9.2
+    permissions:
+      contents: write
+      id-token: write
+    secrets:
+      PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
