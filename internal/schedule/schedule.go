@@ -1,5 +1,5 @@
-// Package schedule creates the Temporal Schedules that replace jobber's
-// crontab entirely: cadences live in Temporal's native Schedule API
+// Package schedule creates the Temporal Schedules for the worker's
+// cron jobs: cadences live in Temporal's native Schedule API
 // (interval-based, not cron strings baked into workflow code) so they are
 // visible and editable via `temporal schedule` / the Temporal UI without a
 // worker code change.

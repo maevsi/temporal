@@ -1,4 +1,4 @@
-// Package workflows implements the two Temporal Workflows that replace jobber's DBBackup and OutboxPurge cron jobs.
+// Package workflows implements the two Temporal Workflows for DBBackup and OutboxPurge.
 // Workflows only orchestrate: all real work (S3 upload, Postgres DELETE, Sentry HTTP calls) lives in internal/activities, reached here purely through method-expression references (see the package doc comment on activities.Activities) so this package never links against the AWS/pgx/HTTP dependencies those activities use.
 package workflows
 
@@ -37,7 +37,7 @@ func checkIn(ctx workflow.Context, job activities.Job, status sentrycrons.Status
 	}
 }
 
-// DBBackupWorkflow orchestrates the DBBackup activity, replacing the jobber job that ran `aws s3 sync /backups s3://<bucket>/backups` daily.
+// DBBackupWorkflow orchestrates the DBBackup activity.
 // A single sync of a bucket's worth of database backups can legitimately take a while, so the activity gets a generous StartToCloseTimeout and a HeartbeatTimeout so a dead worker is detected well before that timeout expires; ConfigError failures (bad bucket, missing source dir) are marked non-retryable since retrying them can't help.
 func DBBackupWorkflow(ctx workflow.Context) (activities.DBBackupResult, error) {
 	checkIn(ctx, activities.JobDBBackup, sentrycrons.StatusInProgress)

@@ -10,7 +10,7 @@ import (
 )
 
 // SentryCheckIn sends a single Sentry Crons check-in for the given job and status.
-// It is called from both workflows at start (in_progress) and at completion (ok / error), the same three-call pattern the original shell-script sinks used (SENTRY_CRONS / SENTRY_CRONS_OUTBOX_PURGE).
+// It is called from both workflows at start (in_progress) and at completion (ok / error).
 //
 // It is intentionally a thin activity: workflows treat check-in failures
 // as best-effort (logged, not propagated) so a Sentry outage never fails
@@ -31,7 +31,7 @@ func (a *Activities) SentryCheckIn(ctx context.Context, input SentryCheckInInput
 }
 
 // sentryClientFor maps a Job to its configured Sentry Crons client.
-// Keeping the mapping in one place means adding a third migrated job only requires a new case here plus a new field on Activities.
+// Keeping the mapping in one place means adding a third job only requires a new case here plus a new field on Activities.
 func (a *Activities) sentryClientFor(job Job) (*sentrycrons.Client, error) {
 	switch job {
 	case JobDBBackup:

@@ -6,14 +6,13 @@ import (
 	"github.com/maevsi/temporal/internal/sentrycrons"
 )
 
-// Job identifies which of the two migrated jobber jobs a Sentry Crons
-// check-in belongs to.
+// Job identifies which workflow a Sentry Crons check-in belongs to.
 type Job string
 
 const (
-	// JobDBBackup corresponds to the original jobber "DBBackup" job.
+	// JobDBBackup is the DBBackup workflow.
 	JobDBBackup Job = "dbbackup"
-	// JobOutboxPurge corresponds to the original jobber "OutboxPurge" job.
+	// JobOutboxPurge is the OutboxPurge workflow.
 	JobOutboxPurge Job = "outbox_purge"
 )
 

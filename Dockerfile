@@ -112,4 +112,4 @@ ENTRYPOINT ["/srv/app/worker"]
 EXPOSE 9090
 HEALTHCHECK --interval=30s --timeout=5s CMD ["/srv/app/worker", "-healthcheck"]
 LABEL org.opencontainers.image.source="https://github.com/maevsi/temporal"
-LABEL org.opencontainers.image.description="Temporal worker (Go) running the DBBackup and OutboxPurge jobs for the Vibetype platform; replaces the jobber cron service."
+LABEL org.opencontainers.image.description="Temporal worker (Go) running jobs for the Vibetype platform."

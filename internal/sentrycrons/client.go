@@ -1,7 +1,6 @@
 // Package sentrycrons implements the check-in protocol for Sentry Crons
 // "ping" style monitors: a plain HTTP GET to a per-monitor URL with a
-// status query parameter, the same mechanism the original jobber-based
-// shell script sinks used via curl.
+// status query parameter.
 package sentrycrons
 
 import (

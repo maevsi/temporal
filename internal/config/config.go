@@ -69,8 +69,7 @@ func (p *Postgres) DSN() string {
 	)
 }
 
-// S3 holds the credentials and bucket configuration needed to reproduce
-// the original `aws s3 sync /backups s3://<bucket>/backups` command.
+// S3 holds the credentials and bucket configuration for database backup uploads.
 type S3 struct {
 	Bucket          string `env:"S3_BUCKET,required,notEmpty"`
 	Prefix          string `env:"S3_PREFIX" envDefault:"backups"`
@@ -88,20 +87,18 @@ type S3 struct {
 }
 
 // Sentry holds the Sentry Crons check-in URLs used for the two jobs, one
-// per job so each keeps its own monitor slug, matching the original
-// SENTRY_CRONS / SENTRY_CRONS_OUTBOX_PURGE environment variables.
+// per job so each keeps its own monitor slug.
 //
 // Either URL may be left empty, in which case check-ins for that job are
-// skipped rather than treated as an error, mirroring the original setup
-// where non-production environments fell back to email instead of Sentry.
+// skipped rather than treated as an error.
 type Sentry struct {
 	DBBackupCheckInURL    string `env:"SENTRY_CRONS"`
 	OutboxPurgeCheckInURL string `env:"SENTRY_CRONS_OUTBOX_PURGE"`
 }
 
 // Schedule holds the cadences the two Temporal Schedules are created with.
-// They default to the original jobber cadences (daily / every 2 hours) but
-// are configurable so they can be tightened for local testing.
+// Defaults are daily for DBBackup and every 2 hours for OutboxPurge, but
+// they are configurable so they can be tightened for local testing.
 type Schedule struct {
 	DBBackupEvery        time.Duration `env:"DBBACKUP_SCHEDULE_EVERY" envDefault:"24h"`
 	OutboxPurgeEvery     time.Duration `env:"OUTBOX_PURGE_SCHEDULE_EVERY" envDefault:"2h"`

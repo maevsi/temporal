@@ -1,29 +1,19 @@
 # temporal
 
-A Go implementation of the Temporal worker that replaces maevsi's `jobber` cron service.
-It is an independent, feature-equivalent alternative to a parallel TypeScript implementation of the same worker, built to compare the two before picking one.
+A Go Temporal worker for maevsi's scheduled operations: database backups and outbox purges.
 This repo only implements the worker side; the shared self-hosted Temporal Server infrastructure (Temporal Server/UI containers, Prometheus scrape config, Grafana alerting, Docker Swarm secrets) is implemented separately in the `stack` repo and is **not** part of this repo.
 
-## What this replaces
+## Workflows
 
-`jobber` ran two cron jobs directly in a container, each notified via Sentry Crons check-ins in production and email in development:
+Two Temporal Workflows, each with one Activity doing the real work:
 
-| jobber job    | cadence       | command                                                                          | Sentry env var              |
-| ------------- | ------------- | --------------------------------------------------------------------------------- | ---------------------------- |
-| `DBBackup`    | daily         | `aws s3 sync /backups s3://<bucket>/backups`                                      | `SENTRY_CRONS`               |
-| `OutboxPurge` | every 2 hours | `DELETE FROM vibetype_private.outbox WHERE created_at < now() - interval '24 hours'` | `SENTRY_CRONS_OUTBOX_PURGE` |
+| Workflow              | Activity       | Schedule ID              | Cadence |
+| --------------------- | -------------- | ------------------------- | ------- |
+| `DBBackupWorkflow`    | `DBBackup`     | `dbbackup-daily`          | every 24h |
+| `OutboxPurgeWorkflow` | `OutboxPurge`  | `outbox-purge-every-2h`   | every 2h  |
 
-`OutboxPurge` was blocked in production because the jobber image had no `psql` client, which was one of the reasons for moving off jobber entirely.
-
-This worker reimplements both as Temporal Workflows, each with one Activity doing the real work:
-
-| jobber job    | Temporal Workflow      | Temporal Activity | Schedule ID              | Cadence       |
-| ------------- | ----------------------- | ------------------ | ------------------------- | ------------- |
-| `DBBackup`    | `DBBackupWorkflow`      | `DBBackup`          | `dbbackup-daily`          | every 24h     |
-| `OutboxPurge` | `OutboxPurgeWorkflow`   | `OutboxPurge`       | `outbox-purge-every-2h`   | every 2h      |
-
-Both workflows also call a shared `SentryCheckIn` activity at start (`in_progress`) and completion (`ok` / `error`), the same three-call pattern the original shell-script sinks used.
-`OutboxPurge` now runs directly against Postgres over a real driver (`pgx`), so the missing-`psql` problem does not apply here.
+Both workflows call a shared `SentryCheckIn` activity at start (`in_progress`) and completion (`ok` / `error`).
+`OutboxPurge` runs directly against Postgres over `pgx`.
 
 ## Architecture
 
@@ -73,23 +63,23 @@ Whatever supplies the environment (a Docker Swarm `secrets:` mapping translated 
 | Variable               | Default   | Notes                                                          |
 | ----------------------- | --------- | ---------------------------------------------------------------|
 | `S3_BUCKET`             | *required* |                                                                 |
-| `S3_PREFIX`             | `backups` | Object key prefix, matches the `/backups` suffix in the original `aws s3 sync` target. |
+| `S3_PREFIX`             | `backups` | Object key prefix.                                             |
 | `S3_REGION`             | *required* |                                                                 |
 | `S3_ACCESS_KEY_ID`      | *required* |                                                                 |
 | `S3_SECRET_ACCESS_KEY`  | *required* |                                                                 |
 | `S3_ENDPOINT`           | *(unset)* | Override for S3-compatible storage; leave unset for AWS S3.    |
 | `S3_USE_PATH_STYLE`     | `false`   | Typically required by non-AWS S3-compatible endpoints.         |
-| `BACKUP_SOURCE_DIR`     | `/backups` | Local directory synced to S3, matches the original command's source. |
+| `BACKUP_SOURCE_DIR`     | `/backups` | Local directory synced to S3.                                  |
 
 ### Sentry Crons
 
 | Variable                    | Default   | Notes                                                                   |
 | ----------------------------- | --------- | -------------------------------------------------------------------------|
-| `SENTRY_CRONS`                | *(unset)* | DBBackup check-in URL. Same variable name as the original jobber setup. |
-| `SENTRY_CRONS_OUTBOX_PURGE`   | *(unset)* | OutboxPurge check-in URL. Same variable name as the original jobber setup. |
+| `SENTRY_CRONS`                | *(unset)* | DBBackup check-in URL.                                                   |
+| `SENTRY_CRONS_OUTBOX_PURGE`   | *(unset)* | OutboxPurge check-in URL.                                                |
 
 Both accept a Sentry Crons monitor "ping" URL (`https://sentry.io/api/0/cron/<monitor-slug>/<client-key>/`); the worker appends `?status=in_progress|ok|error`.
-Leaving either unset makes check-ins for that job a no-op rather than an error, mirroring the original setup where non-production environments relied on email instead of Sentry.
+Leaving either unset makes check-ins for that job a no-op rather than an error.
 
 ### Schedule cadences
 
@@ -97,7 +87,7 @@ Leaving either unset makes check-ins for that job a no-op rather than an error, 
 | -------------------------------- | ------- | ------------------------------------------|
 | `DBBACKUP_SCHEDULE_EVERY`        | `24h`   | Go duration syntax (`24h`, `30m`, ...).   |
 | `OUTBOX_PURGE_SCHEDULE_EVERY`    | `2h`    |                                            |
-| `OUTBOX_PURGE_RETENTION`         | `24h`   | Matches the original `interval '24 hours'` in the DELETE. |
+| `OUTBOX_PURGE_RETENTION`         | `24h`   | Rows older than this duration are deleted. |
 
 ### Metrics
 
@@ -184,7 +174,7 @@ Both stages have been built and run locally: `--target test` runs the full lint/
 ## Known simplifications
 
 - **DBBackup's diffing** compares local file size against S3's `HeadObject` `ContentLength` per file, rather than the AWS CLI's default size+mtime heuristic.
-  This isn't just a simplification: dump files get a fresh mtime on every regeneration regardless of whether their content changed, so an mtime check would force a re-upload on every single run and defeat the point of diffing entirely.
+  Dump files get a fresh mtime on every regeneration regardless of whether their content changed, so an mtime check would force a re-upload on every single run and defeat the point of diffing entirely.
   Size-only is close enough for backup files that are either new or fully rewritten, but not byte-for-byte equivalent to `aws s3 sync`.
 - **DBBackup uploads through `aws-sdk-go-v2/feature/s3/transfermanager`**, which transparently switches to a multipart upload above S3's 5 GiB single-`PutObject` limit.
 - **Schedules are bootstrapped once and never updated** by this worker.

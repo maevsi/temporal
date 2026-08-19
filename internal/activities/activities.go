@@ -1,4 +1,4 @@
-// Package activities implements the Temporal Activities backing the two migrated jobber jobs (DBBackup, OutboxPurge) plus a small SentryCheckIn activity shared by both workflows.
+// Package activities implements the Temporal Activities for DBBackup, OutboxPurge, and SentryCheckIn.
 //
 // Activities are methods on Activities so their real dependencies (an S3 client, a Postgres executor, Sentry Crons clients) are injected once at worker startup instead of being read from globals.
 // Workflows never import this package's dependencies directly; they reference activities via method-expressions on a zero-value *Activities and the Input/Result types in types.go (see internal/workflows).

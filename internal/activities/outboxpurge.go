@@ -10,7 +10,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 )
 
-// OutboxPurge reproduces the original jobber command:
+// OutboxPurge deletes rows older than the configured retention period from the outbox table:
 //
 //	DELETE FROM vibetype_private.outbox WHERE created_at < now() - interval '24 hours'
 //

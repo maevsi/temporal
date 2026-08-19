@@ -1,5 +1,5 @@
-// Command worker runs the maevsi Temporal worker that replaces the
-// jobber-based DBBackup and OutboxPurge cron jobs.
+// Command worker runs the maevsi Temporal worker for scheduled
+// DBBackup and OutboxPurge operations.
 // It:
 //
 //  1. loads configuration from the environment (see internal/config),
