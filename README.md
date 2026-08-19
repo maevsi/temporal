@@ -108,7 +108,7 @@ Leaving either unset makes check-ins for that job a no-op rather than an error, 
 
 ## Metrics
 
-The worker exposes the Temporal Go SDK's native metrics (activity/workflow execution counts and latencies, task queue backlog, poller counts, etc.) on a Prometheus HTTP handler at `METRICS_ADDR``METRICS_PATH` (`:9090/metrics` by default), via `go.temporal.io/sdk/contrib/tally` backed by `github.com/uber-go/tally/v4/prometheus`.
+The worker exposes the Temporal Go SDK's native metrics (activity/workflow execution counts and latencies, task queue backlog, poller counts, etc.) on a Prometheus HTTP handler at `METRICS_ADDR` `METRICS_PATH` (`:9090/metrics` by default), via `go.temporal.io/sdk/contrib/tally` backed by `github.com/uber-go/tally/v4/prometheus`.
 Pointing a Prometheus scrape target at this port is all that is needed on the infrastructure side; wiring that scrape target and any Grafana dashboards/alerts is `stack` repo work happening separately.
 
 There is also a plain `/healthz` endpoint (200 OK if the HTTP server is up) used by the container `HEALTHCHECK`; see [Docker image](#docker-image).
