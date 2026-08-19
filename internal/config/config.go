@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -60,11 +61,12 @@ type Postgres struct {
 }
 
 // DSN renders the connection details as a libpq-style connection string
-// suitable for pgxpool.New.
+// suitable for pgxpool.New. The password is URL-encoded to handle special
+// characters (spaces, @, =, etc.) that would otherwise break parsing.
 func (p Postgres) DSN() string {
 	return fmt.Sprintf(
 		"host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
-		p.Host, p.Port, p.Database, p.User, p.Password, p.SSLMode,
+		p.Host, p.Port, p.Database, p.User, url.QueryEscape(p.Password), p.SSLMode,
 	)
 }
 
