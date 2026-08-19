@@ -3,6 +3,7 @@ package activities
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -62,13 +63,15 @@ func pgIntervalLiteral(d time.Duration) string {
 // quoteIdent double-quotes a Postgres identifier and escapes embedded quotes.
 // Schema/table names come from this service's own configuration, not user input, but quoting them keeps the query well-formed regardless.
 func quoteIdent(ident string) string {
-	escaped := ""
+	var b strings.Builder
+	b.WriteByte('"')
 	for _, r := range ident {
 		if r == '"' {
-			escaped += `""`
+			b.WriteString(`""`)
 			continue
 		}
-		escaped += string(r)
+		b.WriteRune(r)
 	}
-	return `"` + escaped + `"`
+	b.WriteByte('"')
+	return b.String()
 }
