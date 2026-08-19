@@ -26,15 +26,31 @@ const (
 
 // Client sends check-ins for a single Sentry Crons monitor.
 type Client struct {
-	checkInURL string
+	// parsedURL is the pre-parsed check-in URL with existing query
+	// parameters preserved, minus "status" which is set per-call.
+	parsedURL  *url.URL
 	httpClient *http.Client
 }
 
 // New returns a Client for the given check-in URL.
 // An empty URL is valid and produces a Client whose CheckIn calls are no-ops; this matches environments (e.g. local development) that historically relied on email notifications instead of Sentry.
 func New(checkInURL string) *Client {
+	if checkInURL == "" {
+		return &Client{httpClient: &http.Client{Timeout: 10 * time.Second}}
+	}
+
+	u, err := url.Parse(checkInURL)
+	if err != nil {
+		// Store nil parsedURL; CheckIn will fall back to raw string.
+		return &Client{httpClient: &http.Client{Timeout: 10 * time.Second}}
+	}
+
+	q := u.Query()
+	q.Set("status", "")
+	u.RawQuery = q.Encode()
+
 	return &Client{
-		checkInURL: checkInURL,
+		parsedURL:  u,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -42,7 +58,7 @@ func New(checkInURL string) *Client {
 // Configured reports whether this Client has a check-in URL and will
 // actually perform requests.
 func (c *Client) Configured() bool {
-	return c != nil && c.checkInURL != ""
+	return c != nil && c.parsedURL != nil
 }
 
 // CheckIn reports the given status to Sentry Crons.
@@ -52,10 +68,7 @@ func (c *Client) CheckIn(ctx context.Context, status Status) error {
 		return nil
 	}
 
-	u, err := url.Parse(c.checkInURL)
-	if err != nil {
-		return fmt.Errorf("sentrycrons: parse check-in URL: %w", err)
-	}
+	u := *c.parsedURL
 	q := u.Query()
 	q.Set("status", string(status))
 	u.RawQuery = q.Encode()
@@ -71,7 +84,7 @@ func (c *Client) CheckIn(ctx context.Context, status Status) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 300 {
+	if resp.StatusCode >= 400 {
 		return fmt.Errorf("sentrycrons: check-in returned status %d", resp.StatusCode)
 	}
 	return nil
