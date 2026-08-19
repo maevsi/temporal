@@ -13,6 +13,8 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/maevsi/temporal-worker-go/internal/config"
 	"github.com/maevsi/temporal-worker-go/internal/workflows"
@@ -50,6 +52,10 @@ func ensure(ctx context.Context, c client.Client, opts client.ScheduleOptions) e
 	}
 
 	if _, err := c.ScheduleClient().Create(ctx, opts); err != nil {
+		if status.Code(err) == codes.AlreadyExists {
+			// Another replica created it between our Describe and Create; safe to ignore.
+			return nil
+		}
 		return fmt.Errorf("schedule: create %q: %w", opts.ID, err)
 	}
 	return nil
