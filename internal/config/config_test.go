@@ -85,7 +85,11 @@ func TestLoad_InvalidDuration(t *testing.T) {
 
 	_, err := Load()
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "DBBACKUP_SCHEDULE_EVERY")
+	// The underlying env library's parse-error messages name the Go
+	// struct field ("DBBackupEvery"), not the env var
+	// ("DBBACKUP_SCHEDULE_EVERY"); missing-variable errors (see
+	// TestLoad_MissingRequired) still name the env var itself.
+	assert.ErrorContains(t, err, "DBBackupEvery")
 }
 
 func TestPostgres_DSN(t *testing.T) {
