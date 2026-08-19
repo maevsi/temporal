@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/maevsi/temporal-worker-go/internal/config"
+	"github.com/maevsi/temporal/internal/config"
 )
 
 // NewPool opens a connection pool using the given configuration.

@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/maevsi/temporal-worker-go/internal/config"
-	"github.com/maevsi/temporal-worker-go/internal/workflows"
+	"github.com/maevsi/temporal/internal/config"
+	"github.com/maevsi/temporal/internal/workflows"
 )
 
 // Schedule IDs are stable business identifiers; changing them creates new

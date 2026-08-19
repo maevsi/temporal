@@ -6,7 +6,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
-	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
+	"github.com/maevsi/temporal/internal/sentrycrons"
 )
 
 // SentryCheckIn sends a single Sentry Crons check-in for the given job and status.

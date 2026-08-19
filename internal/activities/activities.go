@@ -7,7 +7,7 @@ package activities
 import (
 	"time"
 
-	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
+	"github.com/maevsi/temporal/internal/sentrycrons"
 )
 
 // Activities bundles the dependencies needed by every activity in this package.

@@ -1,4 +1,4 @@
-# temporal-worker-go
+# temporal
 
 A Go implementation of the Temporal worker that replaces maevsi's `jobber` cron service.
 It is an independent, feature-equivalent alternative to a parallel TypeScript implementation of the same worker, built to compare the two before picking one.
@@ -176,7 +176,7 @@ Since `scratch` has no shell, `HEALTHCHECK` execs the binary itself with a `-hea
 
 ```sh
 docker build --target test .        # lint + go vet + go test, no image needed for CI
-docker build --target production -t temporal-worker-go .
+docker build --target production -t temporal .
 ```
 
 Both stages have been built and run locally: `--target test` runs the full lint/vet/test suite inside the container, and `--target production` produces a working ~44 MB non-root image that starts, loads config, and reports a clean multi-error message when required env vars are missing.
@@ -192,5 +192,5 @@ Both stages have been built and run locally: `--target test` runs the full lint/
 
 ## Repository status
 
-This repo is local-only: it has not been pushed anywhere and no GitHub remote exists for it yet.
-Creating the `maevsi/temporal-worker-go` remote and pushing is a deliberate next step left to whoever decides this implementation is the one to keep.
+This repo has the `maevsi/temporal` remote configured but has not been pushed yet.
+Pushing, creating the GitHub repository itself, and configuring the `PERSONAL_ACCESS_TOKEN` secret CI needs are deliberate next steps left to whoever decides this implementation is the one to keep.

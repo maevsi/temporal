@@ -6,8 +6,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/maevsi/temporal-worker-go/internal/activities"
-	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
+	"github.com/maevsi/temporal/internal/activities"
+	"github.com/maevsi/temporal/internal/sentrycrons"
 )
 
 // OutboxPurgeWorkflow orchestrates the OutboxPurge activity, replacing the jobber job that ran

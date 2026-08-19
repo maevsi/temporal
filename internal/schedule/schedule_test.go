@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/maevsi/temporal-worker-go/internal/config"
+	"github.com/maevsi/temporal/internal/config"
 )
 
 func testConfig() config.Config {

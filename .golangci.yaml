@@ -31,6 +31,6 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/maevsi/temporal-worker-go
+        - github.com/maevsi/temporal
 
 issues: {}

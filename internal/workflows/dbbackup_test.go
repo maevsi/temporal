@@ -11,8 +11,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
-	"github.com/maevsi/temporal-worker-go/internal/activities"
-	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
+	"github.com/maevsi/temporal/internal/activities"
+	"github.com/maevsi/temporal/internal/sentrycrons"
 )
 
 type DBBackupWorkflowSuite struct {

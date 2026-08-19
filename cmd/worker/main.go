@@ -26,14 +26,14 @@ import (
 	sdklog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/worker"
 
-	"github.com/maevsi/temporal-worker-go/internal/activities"
-	"github.com/maevsi/temporal-worker-go/internal/config"
-	"github.com/maevsi/temporal-worker-go/internal/metrics"
-	"github.com/maevsi/temporal-worker-go/internal/postgres"
-	"github.com/maevsi/temporal-worker-go/internal/s3client"
-	"github.com/maevsi/temporal-worker-go/internal/schedule"
-	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
-	"github.com/maevsi/temporal-worker-go/internal/workflows"
+	"github.com/maevsi/temporal/internal/activities"
+	"github.com/maevsi/temporal/internal/config"
+	"github.com/maevsi/temporal/internal/metrics"
+	"github.com/maevsi/temporal/internal/postgres"
+	"github.com/maevsi/temporal/internal/s3client"
+	"github.com/maevsi/temporal/internal/schedule"
+	"github.com/maevsi/temporal/internal/sentrycrons"
+	"github.com/maevsi/temporal/internal/workflows"
 )
 
 func main() {

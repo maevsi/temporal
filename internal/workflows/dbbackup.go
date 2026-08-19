@@ -8,8 +8,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/maevsi/temporal-worker-go/internal/activities"
-	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
+	"github.com/maevsi/temporal/internal/activities"
+	"github.com/maevsi/temporal/internal/sentrycrons"
 )
 
 // checkInActivityOptions are deliberately short and cheap to retry: a Sentry Crons check-in should never be the reason a workflow run takes long or ties up worker capacity.

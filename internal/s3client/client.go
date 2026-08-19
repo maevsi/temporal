@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/maevsi/temporal-worker-go/internal/config"
+	"github.com/maevsi/temporal/internal/config"
 )
 
 // New builds an *s3.Client (which satisfies activities.S3API) from the given configuration.

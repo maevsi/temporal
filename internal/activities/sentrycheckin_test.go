@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 
-	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
+	"github.com/maevsi/temporal/internal/sentrycrons"
 )
 
 // runCheckIn executes the SentryCheckIn activity, which (unlike DBBackup

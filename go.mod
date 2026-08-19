@@ -1,4 +1,4 @@
-module github.com/maevsi/temporal-worker-go
+module github.com/maevsi/temporal
 
 go 1.26.6
 

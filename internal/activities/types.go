@@ -3,7 +3,7 @@ package activities
 import (
 	"time"
 
-	"github.com/maevsi/temporal-worker-go/internal/sentrycrons"
+	"github.com/maevsi/temporal/internal/sentrycrons"
 )
 
 // Job identifies which of the two migrated jobber jobs a Sentry Crons
