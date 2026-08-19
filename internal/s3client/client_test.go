@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/maevsi/temporal-worker-go/internal/config"
+	"github.com/maevsi/temporal/internal/config"
 )
 
 func TestNew_ReturnsClientWithValidConfig(t *testing.T) {
@@ -16,7 +16,7 @@ func TestNew_ReturnsClientWithValidConfig(t *testing.T) {
 		SecretAccessKey: "secret",
 	}
 
-	client, err := New(context.Background(), cfg)
+	client, err := New(context.Background(), &cfg)
 	require.NoError(t, err)
 	require.NotNil(t, client)
 }
@@ -30,7 +30,7 @@ func TestNew_AcceptsCustomEndpoint(t *testing.T) {
 		UsePathStyle:    true,
 	}
 
-	client, err := New(context.Background(), cfg)
+	client, err := New(context.Background(), &cfg)
 	require.NoError(t, err)
 	require.NotNil(t, client)
 }
