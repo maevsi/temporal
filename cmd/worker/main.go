@@ -56,16 +56,17 @@ func main() {
 	}
 }
 
-// runHealthcheck loads the same config the running worker process would
-// have loaded and checks that its metrics HTTP server is responding.
+// runHealthcheck probes the running worker's /healthz endpoint and exits 0/1.
+// It attempts to load the full config first so METRICS_ADDR is respected,
+// but falls back to a default listen address rather than failing outright.
+// The container HEALTHCHECK exec may not have all env vars available.
 func runHealthcheck() int {
+	addr := ":9090"
 	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "healthcheck: load config:", err)
-		return 1
+	if err == nil {
+		addr = cfg.Metrics.Addr
 	}
 
-	addr := cfg.Metrics.Addr
 	if strings.HasPrefix(addr, ":") {
 		addr = "127.0.0.1" + addr
 	}
