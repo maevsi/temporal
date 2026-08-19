@@ -59,11 +59,6 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 		// dead worker via HeartbeatTimeout instead of waiting out the
 		// full StartToCloseTimeout.
 		activity.RecordHeartbeat(ctx, path)
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 
 		rel, err := filepath.Rel(a.SourceDir, path)
 		if err != nil {
@@ -89,14 +84,18 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 		if err != nil {
 			return fmt.Errorf("open %q: %w", path, err)
 		}
-		defer f.Close()
 
 		if _, err := a.S3.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: &a.Bucket,
 			Key:    &key,
 			Body:   f,
 		}); err != nil {
+			_ = f.Close()
 			return fmt.Errorf("upload %q to s3://%s/%s: %w", path, a.Bucket, key, err)
+		}
+
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close %q: %w", path, err)
 		}
 
 		logger.Debug("uploaded backup file", "path", path, "key", key, "bytes", fileInfo.Size())
