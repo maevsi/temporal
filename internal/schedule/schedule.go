@@ -13,8 +13,6 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/maevsi/temporal/internal/config"
 	"github.com/maevsi/temporal/internal/workflows"
@@ -52,7 +50,7 @@ func ensure(ctx context.Context, c client.Client, opts *client.ScheduleOptions) 
 	}
 
 	if _, err := c.ScheduleClient().Create(ctx, *opts); err != nil {
-		if status.Code(err) == codes.AlreadyExists {
+		if isAlreadyExists(err) {
 			// Another replica created it between our Describe and Create; safe to ignore.
 			return nil
 		}
@@ -64,6 +62,17 @@ func ensure(ctx context.Context, c client.Client, opts *client.ScheduleOptions) 
 func isNotFound(err error) bool {
 	var nf *serviceerror.NotFound
 	return errors.As(err, &nf)
+}
+
+// isAlreadyExists reports whether err says the Schedule was created by someone else first, which is what a second worker replica sees when both bootstrap at the same time.
+// The check has to go through errors.As on the SDK's own error types rather than grpc's status.Code: the SDK converts gRPC status errors into serviceerror values, and those do not implement GRPCStatus(), so status.Code would report codes.Unknown for every one of them.
+func isAlreadyExists(err error) bool {
+	var ae *serviceerror.AlreadyExists
+	if errors.As(err, &ae) {
+		return true
+	}
+	var started *serviceerror.WorkflowExecutionAlreadyStarted
+	return errors.As(err, &started)
 }
 
 func dbBackupSchedule(cfg *config.Config) *client.ScheduleOptions {
