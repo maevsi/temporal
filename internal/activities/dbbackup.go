@@ -86,6 +86,8 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 		if err != nil {
 			return fmt.Errorf("open %q: %w", path, err)
 		}
+		// This defer runs when the walk callback returns for this file, not at the end of the whole walk, so descriptors do not pile up across a large source directory.
+		// The close error is dropped because the file is only ever read from, where closing cannot lose data.
 		defer func() { _ = f.Close() }()
 
 		if _, err := uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
@@ -93,12 +95,7 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 			Key:    &key,
 			Body:   f,
 		}); err != nil {
-			_ = f.Close()
 			return fmt.Errorf("upload %q to s3://%s/%s: %w", path, a.Bucket, key, err)
-		}
-
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("close %q: %w", path, err)
 		}
 
 		logger.Debug("uploaded backup file", "path", path, "key", key, "bytes", fileInfo.Size())
