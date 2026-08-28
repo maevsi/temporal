@@ -131,6 +131,15 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("build s3 client: %w", err)
 	}
 
+	sentryDBBackup, err := sentrycrons.New(cfg.Sentry.DBBackupCheckInURL)
+	if err != nil {
+		return fmt.Errorf("configure sentry crons for dbbackup (SENTRY_CRONS): %w", err)
+	}
+	sentryOutboxPurge, err := sentrycrons.New(cfg.Sentry.OutboxPurgeCheckInURL)
+	if err != nil {
+		return fmt.Errorf("configure sentry crons for outbox purge (SENTRY_CRONS_OUTBOX_PURGE): %w", err)
+	}
+
 	a := &activities.Activities{
 		S3:        s3Client,
 		Bucket:    cfg.S3.Bucket,
@@ -142,8 +151,8 @@ func run(logger *slog.Logger) error {
 		OutboxTable:      "outbox",
 		DefaultRetention: cfg.Schedule.OutboxPurgeRetention,
 
-		SentryDBBackup:    sentrycrons.New(cfg.Sentry.DBBackupCheckInURL),
-		SentryOutboxPurge: sentrycrons.New(cfg.Sentry.OutboxPurgeCheckInURL),
+		SentryDBBackup:    sentryDBBackup,
+		SentryOutboxPurge: sentryOutboxPurge,
 	}
 
 	if err := schedule.EnsureAll(ctx, temporalClient, &cfg); err != nil {

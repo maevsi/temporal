@@ -25,33 +25,39 @@ const (
 
 // Client sends check-ins for a single Sentry Crons monitor.
 type Client struct {
-	// parsedURL is the pre-parsed check-in URL with existing query
-	// parameters preserved, minus "status" which is set per-call.
+	// parsedURL is the pre-parsed check-in URL.
+	// Existing query parameters are preserved; "status" is added per call in CheckIn.
 	parsedURL  *url.URL
 	httpClient *http.Client
 }
 
 // New returns a Client for the given check-in URL.
 // An empty URL is valid and produces a Client whose CheckIn calls are no-ops; this matches environments (e.g. local development) that historically relied on email notifications instead of Sentry.
-func New(checkInURL string) *Client {
+//
+// A non-empty URL that cannot be used is an error rather than a silently unconfigured Client.
+// Monitoring that quietly disables itself on a typo is worse than none at all: the workflows treat check-in failures as best-effort and only log them, so nothing downstream would ever report the mistake and the monitor would simply never fire.
+func New(checkInURL string) (*Client, error) {
 	if checkInURL == "" {
-		return &Client{httpClient: &http.Client{Timeout: 10 * time.Second}}
+		return &Client{httpClient: &http.Client{Timeout: 10 * time.Second}}, nil
 	}
 
 	u, err := url.Parse(checkInURL)
 	if err != nil {
-		// Store nil parsedURL; CheckIn will fall back to raw string.
-		return &Client{httpClient: &http.Client{Timeout: 10 * time.Second}}
+		return nil, fmt.Errorf("sentrycrons: parse check-in URL: %w", err)
 	}
-
-	q := u.Query()
-	q.Set("status", "")
-	u.RawQuery = q.Encode()
+	// url.Parse accepts almost anything, so the scheme has to be checked separately.
+	// Without it a value like "sentry.io/api/0/cron/..." parses fine and only fails much later, inside a check-in that nobody sees fail.
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("sentrycrons: check-in URL must be http or https, got %q", checkInURL)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("sentrycrons: check-in URL has no host: %q", checkInURL)
+	}
 
 	return &Client{
 		parsedURL:  u,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
-	}
+	}, nil
 }
 
 // Configured reports whether this Client has a check-in URL and will
