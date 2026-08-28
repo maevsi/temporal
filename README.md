@@ -80,6 +80,7 @@ Whatever supplies the environment (a Docker Swarm `secrets:` mapping translated 
 
 Both accept a Sentry Crons monitor "ping" URL (`https://sentry.io/api/0/cron/<monitor-slug>/<client-key>/`); the worker appends `?status=in_progress|ok|error`.
 Leaving either unset makes check-ins for that job a no-op rather than an error.
+Setting one to something unusable (no scheme, a scheme other than http/https, no host) fails startup instead, since a monitor that silently never checks in is indistinguishable from one that was never configured.
 
 ### Schedule cadences
 
@@ -105,7 +106,7 @@ There is also a plain `/healthz` endpoint (200 OK if the HTTP server is up) used
 
 ## Sentry Crons alerting
 
-Each workflow calls the `SentryCheckIn` activity three times: once with `in_progress` right after the workflow starts, then once more with `ok` or `error` depending on whether the underlying activity (S3 sync / DELETE) succeeded.
+Each workflow calls the `SentryCheckIn` activity twice: once with `in_progress` right after the workflow starts, then once more with `ok` or `error` depending on whether the underlying activity (S3 sync / DELETE) succeeded.
 A Sentry Crons outage never fails the workflow itself: check-in failures are logged (`workflow.GetLogger(ctx).Warn(...)`) but not propagated, since alerting must not become a reason the actual backup or purge is marked failed.
 
 ## Retry policy
