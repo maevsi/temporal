@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -102,7 +103,41 @@ func TestPostgres_DSN(t *testing.T) {
 		SSLMode:  "require",
 	}
 	assert.Equal(t,
-		"host=pg.internal port=5432 dbname=vibetype user=vibetype_role_service_temporal_worker password=hunter2 sslmode=require",
+		"host='pg.internal' port=5432 dbname='vibetype' user='vibetype_role_service_temporal_worker' password='hunter2' sslmode='require'",
 		p.DSN(),
 	)
+}
+
+// TestPostgres_DSN_RoundTripsSpecialCharacters is the check that matters here: rendering the DSN is only correct if pgx reads back exactly the password that went in.
+// Percent-encoding used to be applied instead of quoting, which pgx passes through verbatim in this connection string format, so every password containing a space, "@", "=", or "+" silently authenticated with the wrong value.
+func TestPostgres_DSN_RoundTripsSpecialCharacters(t *testing.T) {
+	passwords := []string{
+		"plain123",
+		"p@ss w0rd",
+		"a=b",
+		"sim+ple",
+		"has'quote",
+		`back\slash`,
+		"100%sure",
+	}
+
+	for _, password := range passwords {
+		t.Run(password, func(t *testing.T) {
+			p := Postgres{
+				Host:     "pg.internal",
+				Port:     5432,
+				Database: "vibetype",
+				User:     "vibetype_role_service_temporal_worker",
+				Password: password,
+				SSLMode:  "require",
+			}
+
+			parsed, err := pgx.ParseConfig(p.DSN())
+			require.NoError(t, err)
+			assert.Equal(t, password, parsed.Password)
+			assert.Equal(t, "pg.internal", parsed.Host)
+			assert.Equal(t, "vibetype", parsed.Database)
+			assert.Equal(t, "vibetype_role_service_temporal_worker", parsed.User)
+		})
+	}
 }

@@ -6,7 +6,7 @@ package config
 
 import (
 	"fmt"
-	"net/url"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -59,15 +59,28 @@ type Postgres struct {
 	SSLMode string `env:"POSTGRES_SSLMODE" envDefault:"require"`
 }
 
-// DSN renders the connection details as a libpq-style connection string
-// suitable for pgxpool.New. The password is URL-encoded to handle special
-// characters (spaces, @, =, etc.) that would otherwise break parsing.
+// DSN renders the connection details as a libpq-style connection string suitable for pgxpool.New.
+// Every value is single-quoted so passwords and other settings containing spaces, "=", or quotes survive parsing intact.
 func (p *Postgres) DSN() string {
 	return fmt.Sprintf(
 		"host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
-		p.Host, p.Port, p.Database, p.User, url.QueryEscape(p.Password), p.SSLMode,
+		quoteDSNValue(p.Host),
+		p.Port,
+		quoteDSNValue(p.Database),
+		quoteDSNValue(p.User),
+		quoteDSNValue(p.Password),
+		quoteDSNValue(p.SSLMode),
 	)
 }
+
+// quoteDSNValue escapes a value for the libpq keyword/value connection string format that DSN produces.
+// Backslashes and single quotes are backslash-escaped and the result is wrapped in single quotes, which is the only escaping libpq recognizes here.
+// Percent-encoding is deliberately not used: that is the escaping for URL-style DSNs ("postgres://..."), and in keyword/value format pgx passes it through verbatim, so a password like "p@ss w0rd" would be sent as the literal "p%40ss+w0rd" and authentication would fail.
+func quoteDSNValue(v string) string {
+	return "'" + dsnValueEscaper.Replace(v) + "'"
+}
+
+var dsnValueEscaper = strings.NewReplacer(`\`, `\\`, `'`, `\'`)
 
 // S3 holds the credentials and bucket configuration for database backup uploads.
 type S3 struct {
