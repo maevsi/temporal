@@ -319,7 +319,7 @@ func TestDBBackup_KeyBuildingNormalizesPrefix(t *testing.T) {
 	}
 }
 
-// TestDBBackup_EmptyPrefixUploadsAtBucketRoot covers S3_PREFIX being unset, where keys must not pick up a leading separator.
+// TestDBBackup_EmptyPrefixUploadsAtBucketRoot covers an explicitly empty S3_PREFIX, where keys must not pick up a leading separator.
 func TestDBBackup_EmptyPrefixUploadsAtBucketRoot(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "dump.sql", "content")

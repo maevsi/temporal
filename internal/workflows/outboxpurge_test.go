@@ -3,6 +3,7 @@ package workflows
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
@@ -63,6 +64,32 @@ func (s *OutboxPurgeWorkflowSuite) TestFailure_ChecksInProgressThenError() {
 		temporal.NewApplicationError("db unreachable", "PostgresError"),
 	)
 
+	env.ExecuteWorkflow(OutboxPurgeWorkflow)
+
+	s.Require().True(env.IsWorkflowCompleted())
+	s.Require().Error(env.GetWorkflowError())
+	s.Equal([]sentrycrons.Status{sentrycrons.StatusInProgress, sentrycrons.StatusError}, statuses)
+}
+
+// TestCancellation_StillChecksInError covers a run cancelled while the activity is in flight.
+// The terminal check-in has to go out on a disconnected context: on the workflow's own context ExecuteActivity short-circuits with a CanceledError without scheduling anything, and the Sentry monitor would sit in StatusInProgress until its own max-runtime alert fired.
+func (s *OutboxPurgeWorkflowSuite) TestCancellation_StillChecksInError() {
+	env := s.NewTestWorkflowEnvironment()
+	a := activityRef()
+
+	var statuses []sentrycrons.Status
+	env.OnActivity(a.SentryCheckIn, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.SentryCheckInInput) error {
+		statuses = append(statuses, in.Status)
+		return nil
+	})
+
+	env.OnActivity(a.OutboxPurge, mock.Anything, activities.OutboxPurgeInput{}).Return(
+		func(ctx context.Context, _ activities.OutboxPurgeInput) (activities.OutboxPurgeResult, error) {
+			<-ctx.Done()
+			return activities.OutboxPurgeResult{}, ctx.Err()
+		})
+
+	env.RegisterDelayedCallback(env.CancelWorkflow, time.Second)
 	env.ExecuteWorkflow(OutboxPurgeWorkflow)
 
 	s.Require().True(env.IsWorkflowCompleted())

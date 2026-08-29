@@ -137,8 +137,13 @@ func (h progressHeartbeat) OnObjectBytesTransferred(_ context.Context, event *tr
 func newUploader(client S3API, beat func(bytesTransferred, totalBytes int64)) *transfermanager.Client {
 	return transfermanager.New(client, func(o *transfermanager.Options) {
 		o.ObjectProgressListeners.Register(progressHeartbeat{beat: beat})
+		o.FailTimeout = uploadFailTimeout
 	})
 }
+
+// uploadFailTimeout bounds the cleanup the transfer manager does after a failed upload, chiefly the AbortMultipartUpload that releases the parts already sent.
+// It has to be set: left at zero the transfer manager runs that cleanup on the caller's context, so when Temporal cancels the activity on a heartbeat or start-to-close timeout mid-upload the abort is issued on an already-cancelled context, fails, and leaves billable incomplete parts behind on every timed-out run.
+const uploadFailTimeout = 30 * time.Second
 
 // needsUpload reports whether the local file at the given size should be
 // uploaded to key, based on whether the object exists in S3 and, if so,

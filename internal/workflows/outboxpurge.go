@@ -10,6 +10,14 @@ import (
 	"github.com/maevsi/temporal/internal/sentrycrons"
 )
 
+const (
+	outboxPurgeActivityTimeout = 2 * time.Minute
+	outboxPurgeMaxAttempts     = 5
+)
+
+// OutboxPurgeRunTimeout bounds a single OutboxPurgeWorkflow run, derived from the activity's retry budget for the same reason as DBBackupRunTimeout.
+const OutboxPurgeRunTimeout = outboxPurgeActivityTimeout*outboxPurgeMaxAttempts + 5*time.Minute
+
 // OutboxPurgeWorkflow orchestrates the OutboxPurge activity:
 //
 //	DELETE FROM vibetype_private.outbox WHERE created_at < now() - interval '24 hours'
@@ -20,12 +28,12 @@ func OutboxPurgeWorkflow(ctx workflow.Context) (activities.OutboxPurgeResult, er
 	checkIn(ctx, activities.JobOutboxPurge, sentrycrons.StatusInProgress)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute,
+		StartToCloseTimeout: outboxPurgeActivityTimeout,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        5 * time.Second,
 			BackoffCoefficient:     2.0,
 			MaximumInterval:        time.Minute,
-			MaximumAttempts:        5,
+			MaximumAttempts:        outboxPurgeMaxAttempts,
 			NonRetryableErrorTypes: []string{activities.ErrTypeConfig},
 		},
 	})
@@ -38,7 +46,7 @@ func OutboxPurgeWorkflow(ctx workflow.Context) (activities.OutboxPurgeResult, er
 	if purgeErr != nil {
 		status = sentrycrons.StatusError
 	}
-	checkIn(ctx, activities.JobOutboxPurge, status)
+	checkInFinal(ctx, activities.JobOutboxPurge, status)
 
 	return result, purgeErr
 }

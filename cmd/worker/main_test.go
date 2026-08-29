@@ -53,7 +53,8 @@ func TestHealthcheckAddr_FallsBackOnConfigError(t *testing.T) {
 	assert.Equal(t, "127.0.0.1:9090", healthcheckAddr())
 }
 
-// TestHealthcheckAddr_FallsBackOnEmptyAddr covers METRICS_ADDR being present but blank, which loads without error and would otherwise produce the unusable URL "http:///healthz".
+// TestHealthcheckAddr_FallsBackOnEmptyAddr covers METRICS_ADDR being present but blank.
+// The fallback comes from the envDefault on Metrics.Addr, which env applies to a set-but-empty variable just as it does to an unset one, so Load can never hand back the blank address that would produce the unusable URL "http:///healthz".
 func TestHealthcheckAddr_FallsBackOnEmptyAddr(t *testing.T) {
 	setRequiredEnv(t, valid)
 	t.Setenv("METRICS_ADDR", "")

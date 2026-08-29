@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/maevsi/temporal/internal/config"
+	"github.com/maevsi/temporal/internal/workflows"
 )
 
 func testConfig() config.Config {
@@ -77,4 +78,22 @@ func TestIsNotFound(t *testing.T) {
 	assert.True(t, isNotFound(fmt.Errorf("wrapped: %w", serviceerror.NewNotFound("no such schedule"))))
 	assert.False(t, isNotFound(serviceerror.NewUnavailable("frontend down")))
 	assert.False(t, isNotFound(serviceerror.NewAlreadyExists("dup")))
+}
+
+// TestScheduleRunTimeouts_AreIndependentOfTheCadence guards against deriving WorkflowRunTimeout from the schedule interval.
+// The cadences exist to be tightened for local testing, and an interval-derived run timeout would then cut runs short before their activity retry budget was spent: at a one-minute cadence the OutboxPurge activity's own two-minute StartToCloseTimeout could never even complete one attempt.
+func TestScheduleRunTimeouts_AreIndependentOfTheCadence(t *testing.T) {
+	cfg := testConfig()
+	cfg.Schedule.DBBackupEvery = time.Minute
+	cfg.Schedule.OutboxPurgeEvery = time.Minute
+
+	dbAction, ok := dbBackupSchedule(&cfg).Action.(*client.ScheduleWorkflowAction)
+	require.True(t, ok)
+	purgeAction, ok := outboxPurgeSchedule(&cfg).Action.(*client.ScheduleWorkflowAction)
+	require.True(t, ok)
+
+	assert.Equal(t, workflows.DBBackupRunTimeout, dbAction.WorkflowRunTimeout)
+	assert.Equal(t, workflows.OutboxPurgeRunTimeout, purgeAction.WorkflowRunTimeout)
+	assert.Greater(t, dbAction.WorkflowRunTimeout, cfg.Schedule.DBBackupEvery)
+	assert.Greater(t, purgeAction.WorkflowRunTimeout, cfg.Schedule.OutboxPurgeEvery)
 }

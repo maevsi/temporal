@@ -141,3 +141,14 @@ func TestPostgres_DSN_RoundTripsSpecialCharacters(t *testing.T) {
 		})
 	}
 }
+
+// TestLoad_EmptyS3PrefixMeansBucketRoot covers "S3_PREFIX=" being set explicitly, which is how an operator asks for uploads at the bucket root.
+// env applies an envDefault to a set-but-empty variable just as it does to an unset one, so the default has to live outside the struct tag for that distinction to survive Load.
+func TestLoad_EmptyS3PrefixMeansBucketRoot(t *testing.T) {
+	setEnv(t, requiredEnv())
+	t.Setenv("S3_PREFIX", "")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.S3.Prefix)
+}

@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -84,8 +85,11 @@ var dsnValueEscaper = strings.NewReplacer(`\`, `\\`, `'`, `\'`)
 
 // S3 holds the credentials and bucket configuration for database backup uploads.
 type S3 struct {
-	Bucket          string `env:"S3_BUCKET,required,notEmpty"`
-	Prefix          string `env:"S3_PREFIX" envDefault:"backups"`
+	Bucket string `env:"S3_BUCKET,required,notEmpty"`
+	// Prefix is the key prefix backups are uploaded under, defaulting to defaultS3Prefix when S3_PREFIX is unset.
+	// It carries no envDefault tag on purpose: env applies a default to a variable that is set but empty too, which would make an explicit "S3_PREFIX=" mean "backups" rather than the bucket root it reads as.
+	// Load applies the default itself so that distinction survives.
+	Prefix          string `env:"S3_PREFIX"`
 	Region          string `env:"S3_REGION,required,notEmpty"`
 	AccessKeyID     string `env:"S3_ACCESS_KEY_ID,required,notEmpty"`
 	SecretAccessKey string `env:"S3_SECRET_ACCESS_KEY,required,notEmpty"`
@@ -127,5 +131,11 @@ func Load() (Config, error) {
 	if err := env.Parse(&cfg); err != nil {
 		return Config{}, fmt.Errorf("invalid configuration: %w", err)
 	}
+	if _, set := os.LookupEnv("S3_PREFIX"); !set {
+		cfg.S3.Prefix = defaultS3Prefix
+	}
 	return cfg, nil
 }
+
+// defaultS3Prefix is the key prefix used when S3_PREFIX is not set at all.
+const defaultS3Prefix = "backups"

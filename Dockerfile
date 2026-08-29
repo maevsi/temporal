@@ -33,7 +33,10 @@ VOLUME /srv/app
 USER $USER_NAME
 CMD ["go", "run", "./cmd/worker"]
 EXPOSE 9090
-HEALTHCHECK --interval=30s --start-period=30s --timeout=5s CMD ["go", "run", "./cmd/worker", "-healthcheck"]
+# Unlike production, this stage has a shell and busybox wget, so the probe is a plain HTTP request rather than the binary's own -healthcheck flag.
+# Running that flag through "go run" would have to compile and link the whole worker, Temporal and AWS SDKs included, before the probe's own timeout, which a cold build cache cannot do; it would also re-link on every interval.
+# Shortcut: this hardcodes the default metrics port from config.Metrics.Addr, so a dev container that moves the metrics server has to update this line too.
+HEALTHCHECK --interval=30s --start-period=30s --timeout=5s CMD wget --quiet --spider http://127.0.0.1:9090/healthz || exit 1
 
 
 ########################

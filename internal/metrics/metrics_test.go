@@ -83,3 +83,16 @@ func TestServe_RejectsHealthPathCollision(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "collides with the health endpoint")
 }
+
+// TestServe_RejectsPathWithoutLeadingSlash covers a METRICS_PATH that http.ServeMux reads as a host rather than a path.
+// Like the HealthPath collision, the resulting panic would happen on the goroutine Serve runs on in the worker and take the process down, so it has to be caught before mux.Handle sees it.
+func TestServe_RejectsPathWithoutLeadingSlash(t *testing.T) {
+	h := New("temporal_worker_test_no_slash")
+	defer func() { _ = h.Close() }()
+
+	for _, path := range []string{"metrics", ""} {
+		err := Serve(t.Context(), "127.0.0.1:0", path, h)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must start with a slash")
+	}
+}

@@ -66,7 +66,7 @@ It is a property of the schema this worker is written for rather than of a deplo
 | Variable               | Default   | Notes                                                          |
 | ----------------------- | --------- | ---------------------------------------------------------------|
 | `S3_BUCKET`             | *required* |                                                                 |
-| `S3_PREFIX`             | `backups` | Object key prefix.                                             |
+| `S3_PREFIX`             | `backups` | Object key prefix. Set it to the empty string to upload at the bucket root. |
 | `S3_REGION`             | *required* |                                                                 |
 | `S3_ACCESS_KEY_ID`      | *required* |                                                                 |
 | `S3_SECRET_ACCESS_KEY`  | *required* |                                                                 |
@@ -92,7 +92,7 @@ Setting one to something unusable (no scheme, a scheme other than http/https, no
 
 | Variable                       | Default | Notes                                    |
 | -------------------------------- | ------- | ------------------------------------------|
-| `DBBACKUP_SCHEDULE_EVERY`        | `24h`   | Go duration syntax (`24h`, `30m`, ...).   |
+| `DBBACKUP_SCHEDULE_EVERY`        | `24h`   | Go duration syntax (`24h`, `30m`, ...). Only the cadence: how long a single run may take is derived from the activity's own retry budget, so tightening this does not cut runs short. |
 | `OUTBOX_PURGE_SCHEDULE_EVERY`    | `2h`    |                                            |
 | `OUTBOX_PURGE_RETENTION`         | `24h`   | Rows older than this duration are deleted. |
 
@@ -101,7 +101,7 @@ Setting one to something unusable (no scheme, a scheme other than http/https, no
 | Variable        | Default    | Notes                                    |
 | ----------------- | ---------- | ------------------------------------------|
 | `METRICS_ADDR`     | `:9090`    | Listen address for the Prometheus HTTP server. |
-| `METRICS_PATH`     | `/metrics` | Anything but `/healthz`, which the worker serves itself. |
+| `METRICS_PATH`     | `/metrics` | Must start with a slash, and be anything but `/healthz`, which the worker serves itself. |
 
 ## Metrics
 
@@ -169,6 +169,7 @@ The `Dockerfile` builds a multi-stage image: `base` -> `development` / `prepare`
 
 Unlike this org's other services, the `production` stage is `FROM scratch`: a statically linked (`CGO_ENABLED=0`) Go binary needs nothing else at runtime, so the final image is just the binary, CA certificates (for TLS to Temporal/Postgres/S3), and `/etc/passwd`/`/etc/group` entries for the non-root user, about 44 MB total.
 Since `scratch` has no shell, `HEALTHCHECK` execs the binary itself with a `-healthcheck` flag, which loads the same config the running worker would and does a plain HTTP GET against its own `/healthz`.
+The `development` stage does have a shell and probes `/healthz` with `wget` instead: running `-healthcheck` there would mean a `go run` compiling and linking the whole worker on every probe.
 
 ```sh
 docker build --target test .        # go test with the race detector

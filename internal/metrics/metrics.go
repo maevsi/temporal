@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	prom "github.com/prometheus/client_golang/prometheus"
@@ -72,7 +73,11 @@ const HealthPath = "/healthz"
 //
 // HealthPath is intentionally trivial (no Temporal/Postgres/S3 reachability checks): it exists so a container HEALTHCHECK can probe over HTTP even though the production image ships FROM scratch with no shell or curl, via the worker binary's own "-healthcheck" flag (see cmd/worker).
 func Serve(ctx context.Context, addr, path string, h *Handler) error {
-	// http.ServeMux panics on a duplicate pattern, and that panic would happen on the goroutine this runs on rather than surfacing as a startup error, so a METRICS_PATH of HealthPath has to be rejected up front.
+	// http.ServeMux panics on a pattern it cannot parse and on a duplicate pattern alike, and either panic would happen on the goroutine this runs on rather than surfacing as a startup error, so both cases have to be rejected up front.
+	// A pattern without a leading slash is read as a host and rejected ("host/path missing /"), and an empty one is rejected outright.
+	if !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("metrics: path %q must start with a slash; set METRICS_PATH to something like %q", path, "/metrics")
+	}
 	if path == HealthPath {
 		return fmt.Errorf("metrics: path %q collides with the health endpoint; pick a different METRICS_PATH", path)
 	}

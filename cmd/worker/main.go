@@ -69,7 +69,7 @@ func runHealthcheck() int {
 // A host-less listen address such as ":9090" means "every interface", which is not something a client can dial, so it is resolved to loopback.
 func healthcheckAddr() string {
 	addr := defaultMetricsAddr
-	if cfg, err := config.Load(); err == nil && cfg.Metrics.Addr != "" {
+	if cfg, err := config.Load(); err == nil {
 		addr = cfg.Metrics.Addr
 	}
 
