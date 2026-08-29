@@ -64,14 +64,22 @@ func New(namePrefix string) *Handler {
 	}
 }
 
-// Serve starts an HTTP server exposing the metrics handler at path, plus a /healthz endpoint that just confirms this HTTP server itself is up.
-// It blocks until ctx is canceled, then shuts the server down gracefully.
+// HealthPath is where Serve mounts the health endpoint, and the path the worker's own "-healthcheck" probe requests.
+const HealthPath = "/healthz"
+
+// Serve starts an HTTP server exposing the metrics handler at path, plus a HealthPath endpoint that just confirms this HTTP server itself is up.
+// It blocks until ctx is canceled, then shuts the server down.
 //
-// /healthz is intentionally trivial (no Temporal/Postgres/S3 reachability checks): it exists so a container HEALTHCHECK can probe over HTTP even though the production image ships FROM scratch with no shell or curl, via the worker binary's own "-healthcheck" flag (see cmd/worker).
+// HealthPath is intentionally trivial (no Temporal/Postgres/S3 reachability checks): it exists so a container HEALTHCHECK can probe over HTTP even though the production image ships FROM scratch with no shell or curl, via the worker binary's own "-healthcheck" flag (see cmd/worker).
 func Serve(ctx context.Context, addr, path string, h *Handler) error {
+	// http.ServeMux panics on a duplicate pattern, and that panic would happen on the goroutine this runs on rather than surfacing as a startup error, so a METRICS_PATH of HealthPath has to be rejected up front.
+	if path == HealthPath {
+		return fmt.Errorf("metrics: path %q collides with the health endpoint; pick a different METRICS_PATH", path)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle(path, h.HTTP)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(HealthPath, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -88,6 +96,7 @@ func Serve(ctx context.Context, addr, path string, h *Handler) error {
 
 	select {
 	case <-ctx.Done():
+		// Close rather than Shutdown: an in-flight scrape or health probe has nothing to lose by being cut off, and waiting for one would only delay process exit.
 		_ = srv.Close()
 		<-errCh
 		return nil

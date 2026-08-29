@@ -72,3 +72,14 @@ func TestServe_RejectsInvalidAddr(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "metrics: serve"))
 }
+
+// TestServe_RejectsHealthPathCollision covers METRICS_PATH being pointed at the health endpoint.
+// http.ServeMux panics on a duplicate pattern, and Serve runs on its own goroutine in the worker, so that panic would take the process down instead of surfacing as a startup error.
+func TestServe_RejectsHealthPathCollision(t *testing.T) {
+	h := New("temporal_worker_test_collision")
+	defer func() { _ = h.Close() }()
+
+	err := Serve(t.Context(), "127.0.0.1:0", HealthPath, h)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "collides with the health endpoint")
+}
