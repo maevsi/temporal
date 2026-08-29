@@ -1,11 +1,14 @@
 package activities
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -16,48 +19,90 @@ import (
 	"go.temporal.io/sdk/testsuite"
 )
 
-// fakeS3 is a hand-rolled fake of the S3API interface, keyed by S3 object
-// key, that lets tests assert on exactly what the activity would have
-// uploaded without touching real AWS infrastructure.
+// multipartUploadThreshold mirrors transfermanager's unexported defaultMultipartUploadThreshold.
+// It is 16 MiB, not S3's 5 GiB single-PutObject limit, so any fixture meant to exercise the path real dump files take has to clear it.
+const multipartUploadThreshold = 16 * 1024 * 1024
+
+// fakeS3 is a hand-rolled fake of the S3API interface, keyed by S3 object key, that lets tests assert on exactly what the activity would have uploaded without touching real AWS infrastructure.
 //
-// It only implements HeadObject and PutObject meaningfully: every test
-// fixture is a few bytes, far under transfermanager's multipart threshold,
-// so uploads always take the single-PutObject path. The multipart methods
-// below exist only to satisfy transfermanager.S3APIClient at compile time
-// and are never expected to be called; multipart chunking itself is
-// AWS SDK behavior, not this package's, so it isn't re-tested here.
+// Both upload paths are implemented, because both are reachable: transfermanager switches to a multipart upload above 16 MiB, which is well under the size of a real database dump, so the multipart path is the one production almost always takes.
+// The parts are reassembled the way S3 itself does, in the order the caller lists them at CompleteMultipartUpload, so a test can compare the resulting object against the bytes on disk.
 type fakeS3 struct {
+	// mu guards every field below: the transfer manager uploads parts from several goroutines at once.
+	mu sync.Mutex
+
 	// existing simulates objects already present in the bucket, keyed by
 	// object key, valued by their content length.
 	existing map[string]int64
-	// uploaded records the body of every PutObject call, keyed by key.
+	// uploaded records the final body of every completed upload, keyed by key, whether it arrived as one PutObject or as reassembled multipart parts.
 	uploaded map[string][]byte
+	// parts holds the parts of in-flight multipart uploads, keyed by upload ID and then part number.
+	parts map[string]map[int32][]byte
+	// multipartUploads counts CreateMultipartUpload calls, so a test can assert which upload path a fixture actually took.
+	multipartUploads int
+	// aborted counts AbortMultipartUpload calls, which the transfer manager issues when a multipart upload fails partway through.
+	aborted int
 
 	headErr error
 	putErr  error
+	partErr error
 }
 
 func newFakeS3() *fakeS3 {
 	return &fakeS3{
 		existing: map[string]int64{},
 		uploaded: map[string][]byte{},
+		parts:    map[string]map[int32][]byte{},
 	}
 }
 
-func (f *fakeS3) CreateMultipartUpload(_ context.Context, _ *s3.CreateMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CreateMultipartUploadOutput, error) {
-	panic("not expected: test fixtures are always under the multipart threshold")
+func (f *fakeS3) CreateMultipartUpload(_ context.Context, params *s3.CreateMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CreateMultipartUploadOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.multipartUploads++
+	uploadID := fmt.Sprintf("upload-%d", f.multipartUploads)
+	f.parts[uploadID] = map[int32][]byte{}
+	return &s3.CreateMultipartUploadOutput{Bucket: params.Bucket, Key: params.Key, UploadId: &uploadID}, nil
 }
 
-func (f *fakeS3) UploadPart(_ context.Context, _ *s3.UploadPartInput, _ ...func(*s3.Options)) (*s3.UploadPartOutput, error) {
-	panic("not expected: test fixtures are always under the multipart threshold")
+func (f *fakeS3) UploadPart(_ context.Context, params *s3.UploadPartInput, _ ...func(*s3.Options)) (*s3.UploadPartOutput, error) {
+	if f.partErr != nil {
+		return nil, f.partErr
+	}
+	body, err := io.ReadAll(params.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.parts[*params.UploadId][*params.PartNumber] = body
+	etag := fmt.Sprintf("etag-%d", *params.PartNumber)
+	return &s3.UploadPartOutput{ETag: &etag}, nil
 }
 
-func (f *fakeS3) CompleteMultipartUpload(_ context.Context, _ *s3.CompleteMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error) {
-	panic("not expected: test fixtures are always under the multipart threshold")
+func (f *fakeS3) CompleteMultipartUpload(_ context.Context, params *s3.CompleteMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var object []byte
+	for _, part := range params.MultipartUpload.Parts {
+		object = append(object, f.parts[*params.UploadId][*part.PartNumber]...)
+	}
+	delete(f.parts, *params.UploadId)
+	f.uploaded[*params.Key] = object
+	return &s3.CompleteMultipartUploadOutput{Bucket: params.Bucket, Key: params.Key}, nil
 }
 
-func (f *fakeS3) AbortMultipartUpload(_ context.Context, _ *s3.AbortMultipartUploadInput, _ ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error) {
-	panic("not expected: test fixtures are always under the multipart threshold")
+func (f *fakeS3) AbortMultipartUpload(_ context.Context, params *s3.AbortMultipartUploadInput, _ ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.aborted++
+	delete(f.parts, *params.UploadId)
+	return &s3.AbortMultipartUploadOutput{}, nil
 }
 
 func (f *fakeS3) GetObject(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
@@ -72,6 +117,10 @@ func (f *fakeS3) HeadObject(_ context.Context, params *s3.HeadObjectInput, _ ...
 	if f.headErr != nil {
 		return nil, f.headErr
 	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	size, ok := f.existing[*params.Key]
 	if !ok {
 		return nil, &awshttp.ResponseError{
@@ -91,6 +140,10 @@ func (f *fakeS3) PutObject(_ context.Context, params *s3.PutObjectInput, _ ...fu
 	if err != nil {
 		return nil, err
 	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.uploaded[*params.Key] = body
 	return &s3.PutObjectOutput{}, nil
 }
@@ -109,8 +162,9 @@ func runActivity[TIn, TOut any](t *testing.T, fn func(context.Context, TIn) (TOu
 	env.RegisterActivity(fn)
 	val, err := env.ExecuteActivity(fn, in)
 	var out TOut
-	if val != nil {
-		_ = val.Get(&out)
+	// Only the success path carries a result worth decoding, and a decode failure there would otherwise surface as a confusing assertion against a zero value.
+	if err == nil && val != nil {
+		require.NoError(t, val.Get(&out), "decode activity result")
 	}
 	return out, err
 }
@@ -183,6 +237,39 @@ func TestDBBackup_PutObjectErrorFailsActivity(t *testing.T) {
 	a := &Activities{S3: fake, Bucket: "b", Prefix: "backups", SourceDir: dir}
 	_, err := runActivity(t, a.DBBackup, DBBackupInput{})
 	require.Error(t, err)
+}
+
+// writeLargeFile writes a file of the given size and returns its content, so a test can compare what ended up in the bucket against what was on disk.
+// The byte pattern uses a prime stride so parts reassembled in the wrong order show up as a mismatch instead of lining up by coincidence.
+func writeLargeFile(t *testing.T, dir, rel string, size int) []byte {
+	t.Helper()
+	content := make([]byte, size)
+	for i := range content {
+		content[i] = byte(i % 251)
+	}
+	path := filepath.Join(dir, rel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, content, 0o644))
+	return content
+}
+
+// TestDBBackup_UploadsLargeFileViaMultipart covers the upload path a real dump file takes.
+// Anything over 16 MiB is split into parts and reassembled by S3 rather than sent as one PutObject, so this asserts the object that ends up in the bucket is byte-for-byte the file on disk.
+func TestDBBackup_UploadsLargeFileViaMultipart(t *testing.T) {
+	dir := t.TempDir()
+	content := writeLargeFile(t, dir, "dump.sql", multipartUploadThreshold+1)
+
+	fake := newFakeS3()
+	a := &Activities{S3: fake, Bucket: "b", Prefix: "backups", SourceDir: dir}
+
+	result, err := runActivity(t, a.DBBackup, DBBackupInput{})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, result.FilesUploaded)
+	assert.Equal(t, int64(len(content)), result.BytesUploaded)
+	assert.Equal(t, 1, fake.multipartUploads, "a file over the threshold must go through a multipart upload")
+	assert.Zero(t, fake.aborted)
+	assert.True(t, bytes.Equal(content, fake.uploaded["backups/dump.sql"]), "the reassembled object must match the file on disk")
 }
 
 // TestDBBackup_KeyBuildingNormalizesPrefix guards the S3 key layout against a prefix that carries its own separators, which would otherwise produce keys like "backups//dump.sql".
