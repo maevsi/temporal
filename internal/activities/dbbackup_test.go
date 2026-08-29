@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/stretchr/testify/assert"
@@ -270,6 +272,34 @@ func TestDBBackup_UploadsLargeFileViaMultipart(t *testing.T) {
 	assert.Equal(t, 1, fake.multipartUploads, "a file over the threshold must go through a multipart upload")
 	assert.Zero(t, fake.aborted)
 	assert.True(t, bytes.Equal(content, fake.uploaded["backups/dump.sql"]), "the reassembled object must match the file on disk")
+}
+
+// TestNewUploader_ReportsProgressDuringTransfer pins the reason DBBackup wires a progress listener into the transfer manager at all.
+// Heartbeating once per file before its upload starts leaves the whole transfer of a large dump silent, so the Temporal server would time the activity out mid-upload and retry it from scratch forever; progress has to arrive while the transfer is still running, not only once it has finished.
+func TestNewUploader_ReportsProgressDuringTransfer(t *testing.T) {
+	content := make([]byte, multipartUploadThreshold+1)
+	fake := newFakeS3()
+
+	var mu sync.Mutex
+	var progress []int64
+	uploader := newUploader(fake, func(bytesTransferred, _ int64) {
+		mu.Lock()
+		defer mu.Unlock()
+		progress = append(progress, bytesTransferred)
+	})
+
+	bucket, key := "b", "backups/dump.sql"
+	_, err := uploader.UploadObject(t.Context(), &transfermanager.UploadObjectInput{
+		Bucket: &bucket,
+		Key:    &key,
+		Body:   bytes.NewReader(content),
+	})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Greater(t, len(progress), 1, "progress must be reported per part, not once at the end of the transfer")
+	assert.Equal(t, int64(len(content)), slices.Max(progress), "the final progress report must account for the whole object")
 }
 
 // TestDBBackup_KeyBuildingNormalizesPrefix guards the S3 key layout against a prefix that carries its own separators, which would otherwise produce keys like "backups//dump.sql".

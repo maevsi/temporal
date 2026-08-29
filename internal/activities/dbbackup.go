@@ -48,7 +48,9 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 	}
 
 	result := DBBackupResult{}
-	uploader := transfermanager.New(a.S3)
+	uploader := newUploader(a.S3, func(bytesTransferred, totalBytes int64) {
+		activity.RecordHeartbeat(ctx, bytesTransferred, totalBytes)
+	})
 
 	err = filepath.WalkDir(a.SourceDir, func(filePath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -58,9 +60,8 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 			return nil
 		}
 
-		// Long syncs must heartbeat so the Temporal server can detect a
-		// dead worker via HeartbeatTimeout instead of waiting out the
-		// full StartToCloseTimeout.
+		// Long syncs must heartbeat so the Temporal server can detect a dead worker via HeartbeatTimeout instead of waiting out the full StartToCloseTimeout.
+		// This marks progress through the directory; newUploader keeps the heartbeats coming during a single file's transfer.
 		activity.RecordHeartbeat(ctx, filePath)
 
 		rel, err := filepath.Rel(a.SourceDir, filePath)
@@ -117,6 +118,26 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 		"duration", result.Duration,
 	)
 	return result, nil
+}
+
+// progressHeartbeat adapts the transfer manager's byte-progress hook to a plain callback.
+// The transfer manager invokes progress hooks synchronously from the goroutines running the transfer, so beat must be cheap and safe to call concurrently.
+type progressHeartbeat struct {
+	beat func(bytesTransferred, totalBytes int64)
+}
+
+// OnObjectBytesTransferred implements transfermanager.ObjectBytesTransferredListener.
+func (h progressHeartbeat) OnObjectBytesTransferred(_ context.Context, event *transfermanager.ObjectBytesTransferredEvent) {
+	h.beat(event.BytesTransferred, event.TotalBytes)
+}
+
+// newUploader builds the transfer manager DBBackup uploads through, wired so transfer progress reaches beat.
+// Heartbeating once per file before its upload starts is not enough on its own: transferring a single large dump easily outlasts the workflow's HeartbeatTimeout, and the Temporal server would then time the activity out mid-upload and retry it from scratch on every attempt, so the file would never finish uploading no matter how many attempts it got.
+// On the multipart path the hook fires as each part completes; below the multipart threshold it fires only once, after the upload, which is fine because a file that small transfers well inside the timeout.
+func newUploader(client S3API, beat func(bytesTransferred, totalBytes int64)) *transfermanager.Client {
+	return transfermanager.New(client, func(o *transfermanager.Options) {
+		o.ObjectProgressListeners.Register(progressHeartbeat{beat: beat})
+	})
 }
 
 // needsUpload reports whether the local file at the given size should be

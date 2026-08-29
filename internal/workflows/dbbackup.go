@@ -39,12 +39,13 @@ func checkIn(ctx workflow.Context, job activities.Job, status sentrycrons.Status
 
 // DBBackupWorkflow orchestrates the DBBackup activity.
 // A single sync of a bucket's worth of database backups can legitimately take a while, so the activity gets a generous StartToCloseTimeout and a HeartbeatTimeout so a dead worker is detected well before that timeout expires; ConfigError failures (bad bucket, missing source dir) are marked non-retryable since retrying them can't help.
+// The HeartbeatTimeout has to clear the longest gap the activity can leave between two heartbeats, which on the multipart upload path is one completed 8 MiB part: two minutes leaves room for a slow link without letting a dead worker go unnoticed for long.
 func DBBackupWorkflow(ctx workflow.Context) (activities.DBBackupResult, error) {
 	checkIn(ctx, activities.JobDBBackup, sentrycrons.StatusInProgress)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Minute,
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    2 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        30 * time.Second,
 			BackoffCoefficient:     2.0,
