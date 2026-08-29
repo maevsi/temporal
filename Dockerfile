@@ -64,9 +64,13 @@ RUN golangci-lint run ./...
 
 FROM prepare AS test
 
+# The race detector needs cgo, which on Alpine means a C toolchain.
+# This is a leaf stage, so nothing it installs reaches the production image.
+RUN apk add --no-cache gcc musl-dev
+
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    go test -count=1 ./...
+    CGO_ENABLED=1 go test -race -count=1 ./...
 
 
 ########################
