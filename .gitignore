@@ -1,0 +1,11 @@
+# Build output.
+/bin/
+/dist/
+
+# Local environment, which carries the Postgres/S3/Sentry credentials this worker reads.
+.env
+.env.local
+
+# Go test and coverage artifacts.
+*.test
+*.out

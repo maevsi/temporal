@@ -1,0 +1,141 @@
+// Package config loads worker configuration from environment variables.
+//
+// Every setting is read from the environment rather than from files, so this package intentionally does not know anything about the Docker Swarm secrets convention (files mounted under /run/secrets/*) used by the maevsi stack in production.
+// Whatever injects the environment for this process (a compose "secrets" mapping, a systemd EnvironmentFile, a plain .env in local dev) is responsible for turning those secrets into the environment variables documented below and in the README.
+package config
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/caarlos0/env/v11"
+)
+
+// Config is the fully resolved worker configuration.
+type Config struct {
+	Temporal Temporal
+	Metrics  Metrics
+	Postgres Postgres
+	S3       S3
+	Sentry   Sentry
+	Schedule Schedule
+}
+
+// Temporal holds the connection details for the self-hosted Temporal
+// Server (not Temporal Cloud) this worker talks to.
+type Temporal struct {
+	// HostPort is the address of the Temporal frontend service, e.g. "temporal-server:7233".
+	// Matches client.Options.HostPort.
+	HostPort string `env:"TEMPORAL_HOST_PORT" envDefault:"temporal-server:7233"`
+	// Namespace is the Temporal namespace to operate in.
+	Namespace string `env:"TEMPORAL_NAMESPACE" envDefault:"default"`
+	// TaskQueue is the task queue this worker polls and that schedules
+	// dispatch workflow tasks to.
+	TaskQueue string `env:"TEMPORAL_TASK_QUEUE" envDefault:"maevsi-jobs"`
+}
+
+// Metrics configures the Prometheus metrics HTTP server exposed by the
+// worker process, fed by the Temporal Go SDK's native metrics.
+type Metrics struct {
+	// Addr is the listen address for the metrics HTTP server, e.g. ":9090".
+	Addr string `env:"METRICS_ADDR" envDefault:":9090"`
+	// Path is the path the Prometheus handler is mounted on, e.g. "/metrics".
+	Path string `env:"METRICS_PATH" envDefault:"/metrics"`
+}
+
+// Postgres holds connection details for the org's existing central
+// Postgres instance, reached via a dedicated role for this service
+// (idiomatically named something like vibetype_role_service_temporal_worker
+// on the server side; this package has no opinion on the name).
+type Postgres struct {
+	Host     string `env:"POSTGRES_HOST" envDefault:"localhost"`
+	Port     int    `env:"POSTGRES_PORT" envDefault:"5432"`
+	Database string `env:"POSTGRES_DATABASE,required,notEmpty"`
+	User     string `env:"POSTGRES_USER,required,notEmpty"`
+	Password string `env:"POSTGRES_PASSWORD,required,notEmpty"`
+	// SSLMode is passed through to pgx verbatim (e.g. "disable", "require", "verify-full").
+	// Defaults to "require".
+	SSLMode string `env:"POSTGRES_SSLMODE" envDefault:"require"`
+}
+
+// DSN renders the connection details as a libpq-style connection string suitable for pgxpool.New.
+// Every value is single-quoted so passwords and other settings containing spaces, "=", or quotes survive parsing intact.
+func (p *Postgres) DSN() string {
+	return fmt.Sprintf(
+		"host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
+		quoteDSNValue(p.Host),
+		p.Port,
+		quoteDSNValue(p.Database),
+		quoteDSNValue(p.User),
+		quoteDSNValue(p.Password),
+		quoteDSNValue(p.SSLMode),
+	)
+}
+
+// quoteDSNValue escapes a value for the libpq keyword/value connection string format that DSN produces.
+// Backslashes and single quotes are backslash-escaped and the result is wrapped in single quotes, which is the only escaping libpq recognizes here.
+// Percent-encoding is deliberately not used: that is the escaping for URL-style DSNs ("postgres://..."), and in keyword/value format pgx passes it through verbatim, so a password like "p@ss w0rd" would be sent as the literal "p%40ss+w0rd" and authentication would fail.
+func quoteDSNValue(v string) string {
+	return "'" + dsnValueEscaper.Replace(v) + "'"
+}
+
+var dsnValueEscaper = strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+
+// S3 holds the credentials and bucket configuration for database backup uploads.
+type S3 struct {
+	Bucket string `env:"S3_BUCKET,required,notEmpty"`
+	// Prefix is the key prefix backups are uploaded under, defaulting to defaultS3Prefix when S3_PREFIX is unset.
+	// It carries no envDefault tag on purpose: env applies a default to a variable that is set but empty too, which would make an explicit "S3_PREFIX=" mean "backups" rather than the bucket root it reads as.
+	// Load applies the default itself so that distinction survives.
+	Prefix          string `env:"S3_PREFIX"`
+	Region          string `env:"S3_REGION,required,notEmpty"`
+	AccessKeyID     string `env:"S3_ACCESS_KEY_ID,required,notEmpty"`
+	SecretAccessKey string `env:"S3_SECRET_ACCESS_KEY,required,notEmpty"`
+	// Endpoint overrides the default AWS endpoint, for S3-compatible object storage.
+	// Leave empty to use AWS S3 itself.
+	Endpoint string `env:"S3_ENDPOINT"`
+	// UsePathStyle forces path-style addressing, typically required by
+	// non-AWS S3-compatible endpoints.
+	UsePathStyle bool `env:"S3_USE_PATH_STYLE" envDefault:"false"`
+	// SourceDir is the local directory synced to S3, e.g. "/backups".
+	SourceDir string `env:"BACKUP_SOURCE_DIR" envDefault:"/backups"`
+}
+
+// Sentry holds the Sentry Crons check-in URLs used for the two jobs, one
+// per job so each keeps its own monitor slug.
+//
+// Either URL may be left empty, in which case check-ins for that job are
+// skipped rather than treated as an error.
+type Sentry struct {
+	DBBackupCheckInURL    string `env:"SENTRY_CRONS"`
+	OutboxPurgeCheckInURL string `env:"SENTRY_CRONS_OUTBOX_PURGE"`
+}
+
+// Schedule holds the cadences the two Temporal Schedules are created with.
+// Defaults are daily for DBBackup and every 2 hours for OutboxPurge, but
+// they are configurable so they can be tightened for local testing.
+type Schedule struct {
+	DBBackupEvery        time.Duration `env:"DBBACKUP_SCHEDULE_EVERY" envDefault:"24h"`
+	OutboxPurgeEvery     time.Duration `env:"OUTBOX_PURGE_SCHEDULE_EVERY" envDefault:"2h"`
+	OutboxPurgeRetention time.Duration `env:"OUTBOX_PURGE_RETENTION" envDefault:"24h"`
+}
+
+// Load reads configuration from the environment, applying defaults where
+// documented above and in the README, and returns an error describing
+// every missing or invalid variable at once (via env.Parse's aggregate
+// error), rather than failing on the first one encountered.
+func Load() (Config, error) {
+	var cfg Config
+	if err := env.Parse(&cfg); err != nil {
+		return Config{}, fmt.Errorf("invalid configuration: %w", err)
+	}
+	if _, set := os.LookupEnv("S3_PREFIX"); !set {
+		cfg.S3.Prefix = defaultS3Prefix
+	}
+	return cfg, nil
+}
+
+// defaultS3Prefix is the key prefix used when S3_PREFIX is not set at all.
+const defaultS3Prefix = "backups"
