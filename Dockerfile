@@ -33,7 +33,7 @@ VOLUME /srv/app
 USER $USER_NAME
 CMD ["go", "run", "./cmd/worker"]
 EXPOSE 9090
-HEALTHCHECK --start-period=30s --timeout=5s CMD ["go", "run", "./cmd/worker", "-healthcheck"]
+HEALTHCHECK --interval=30s --start-period=30s --timeout=5s CMD ["go", "run", "./cmd/worker", "-healthcheck"]
 
 
 ########################
@@ -114,6 +114,6 @@ WORKDIR /srv/app/
 USER go
 ENTRYPOINT ["/srv/app/worker"]
 EXPOSE 9090
-HEALTHCHECK --interval=30s --timeout=5s CMD ["/srv/app/worker", "-healthcheck"]
+HEALTHCHECK --interval=30s --start-period=30s --timeout=5s CMD ["/srv/app/worker", "-healthcheck"]
 LABEL org.opencontainers.image.source="https://github.com/maevsi/temporal"
 LABEL org.opencontainers.image.description="Temporal worker (Go) running jobs for the Vibetype platform."
