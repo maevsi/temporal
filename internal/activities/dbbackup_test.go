@@ -184,3 +184,33 @@ func TestDBBackup_PutObjectErrorFailsActivity(t *testing.T) {
 	_, err := runActivity(t, a.DBBackup, DBBackupInput{})
 	require.Error(t, err)
 }
+
+// TestDBBackup_KeyBuildingNormalizesPrefix guards the S3 key layout against a prefix that carries its own separators, which would otherwise produce keys like "backups//dump.sql".
+func TestDBBackup_KeyBuildingNormalizesPrefix(t *testing.T) {
+	for _, prefix := range []string{"backups", "backups/", "/backups", "backups//"} {
+		t.Run(prefix, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, dir, "nested/dump.sql", "content")
+
+			fake := newFakeS3()
+			a := &Activities{S3: fake, Bucket: "b", Prefix: prefix, SourceDir: dir}
+
+			_, err := runActivity(t, a.DBBackup, DBBackupInput{})
+			require.NoError(t, err)
+			assert.Contains(t, fake.uploaded, "backups/nested/dump.sql")
+		})
+	}
+}
+
+// TestDBBackup_EmptyPrefixUploadsAtBucketRoot covers S3_PREFIX being unset, where keys must not pick up a leading separator.
+func TestDBBackup_EmptyPrefixUploadsAtBucketRoot(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "dump.sql", "content")
+
+	fake := newFakeS3()
+	a := &Activities{S3: fake, Bucket: "b", SourceDir: dir}
+
+	_, err := runActivity(t, a.DBBackup, DBBackupInput{})
+	require.NoError(t, err)
+	assert.Contains(t, fake.uploaded, "dump.sql")
+}

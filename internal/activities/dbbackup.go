@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -49,7 +50,7 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 	result := DBBackupResult{}
 	uploader := transfermanager.New(a.S3)
 
-	err = filepath.WalkDir(a.SourceDir, func(path string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(a.SourceDir, func(filePath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -60,17 +61,18 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 		// Long syncs must heartbeat so the Temporal server can detect a
 		// dead worker via HeartbeatTimeout instead of waiting out the
 		// full StartToCloseTimeout.
-		activity.RecordHeartbeat(ctx, path)
+		activity.RecordHeartbeat(ctx, filePath)
 
-		rel, err := filepath.Rel(a.SourceDir, path)
+		rel, err := filepath.Rel(a.SourceDir, filePath)
 		if err != nil {
-			return fmt.Errorf("resolve relative path for %q: %w", path, err)
+			return fmt.Errorf("resolve relative path for %q: %w", filePath, err)
 		}
-		key := strings.TrimPrefix(strings.TrimSuffix(a.Prefix, "/")+"/"+filepath.ToSlash(rel), "/")
+		// path.Join collapses the prefix's own slashes, so a stray "backups/" or "/backups" in S3_PREFIX cannot produce a doubled or leading separator in the key.
+		key := strings.TrimPrefix(path.Join(a.Prefix, filepath.ToSlash(rel)), "/")
 
 		fileInfo, err := d.Info()
 		if err != nil {
-			return fmt.Errorf("stat %q: %w", path, err)
+			return fmt.Errorf("stat %q: %w", filePath, err)
 		}
 
 		upload, err := a.needsUpload(ctx, key, fileInfo.Size())
@@ -82,9 +84,9 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 			return nil
 		}
 
-		f, err := os.Open(path)
+		f, err := os.Open(filePath)
 		if err != nil {
-			return fmt.Errorf("open %q: %w", path, err)
+			return fmt.Errorf("open %q: %w", filePath, err)
 		}
 		// This defer runs when the walk callback returns for this file, not at the end of the whole walk, so descriptors do not pile up across a large source directory.
 		// The close error is dropped because the file is only ever read from, where closing cannot lose data.
@@ -95,10 +97,10 @@ func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupRes
 			Key:    &key,
 			Body:   f,
 		}); err != nil {
-			return fmt.Errorf("upload %q to s3://%s/%s: %w", path, a.Bucket, key, err)
+			return fmt.Errorf("upload %q to s3://%s/%s: %w", filePath, a.Bucket, key, err)
 		}
 
-		logger.Debug("uploaded backup file", "path", path, "key", key, "bytes", fileInfo.Size())
+		logger.Debug("uploaded backup file", "path", filePath, "key", key, "bytes", fileInfo.Size())
 		result.FilesUploaded++
 		result.BytesUploaded += fileInfo.Size()
 		return nil
