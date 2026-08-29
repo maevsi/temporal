@@ -1,13 +1,11 @@
 package main
 
 import (
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // requiredEnv lists the variables config.Load refuses to start without.
@@ -32,7 +30,38 @@ func setRequiredEnv(t *testing.T, value func(string) string) {
 func valid(v string) string { return v }
 func blank(string) string   { return "" }
 
-func TestRunHealthcheck_ReturnsZeroOnHealthy(t *testing.T) {
+func TestHealthcheckAddr_UsesConfiguredAddr(t *testing.T) {
+	setRequiredEnv(t, valid)
+	t.Setenv("METRICS_ADDR", "10.0.0.5:9999")
+
+	assert.Equal(t, "10.0.0.5:9999", healthcheckAddr())
+}
+
+// TestHealthcheckAddr_ResolvesHostlessAddrToLoopback covers the default listen address form, which names a port but no host and so cannot be dialed as-is.
+func TestHealthcheckAddr_ResolvesHostlessAddrToLoopback(t *testing.T) {
+	setRequiredEnv(t, valid)
+	t.Setenv("METRICS_ADDR", ":9191")
+
+	assert.Equal(t, "127.0.0.1:9191", healthcheckAddr())
+}
+
+// TestHealthcheckAddr_FallsBackOnConfigError covers the container HEALTHCHECK exec, which does not necessarily inherit the worker's environment.
+// A missing config must not stop the probe from reaching a worker listening on the default address.
+func TestHealthcheckAddr_FallsBackOnConfigError(t *testing.T) {
+	setRequiredEnv(t, blank)
+
+	assert.Equal(t, "127.0.0.1:9090", healthcheckAddr())
+}
+
+// TestHealthcheckAddr_FallsBackOnEmptyAddr covers METRICS_ADDR being present but blank, which loads without error and would otherwise produce the unusable URL "http:///healthz".
+func TestHealthcheckAddr_FallsBackOnEmptyAddr(t *testing.T) {
+	setRequiredEnv(t, valid)
+	t.Setenv("METRICS_ADDR", "")
+
+	assert.Equal(t, "127.0.0.1:9090", healthcheckAddr())
+}
+
+func TestProbeHealth_ReturnsZeroOnHealthy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
 			w.WriteHeader(http.StatusOK)
@@ -40,45 +69,23 @@ func TestRunHealthcheck_ReturnsZeroOnHealthy(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	setRequiredEnv(t, valid)
-	t.Setenv("METRICS_ADDR", srv.Listener.Addr().String())
-
-	assert.Equal(t, 0, runHealthcheck(), "healthcheck should return 0 when /healthz responds 200")
+	assert.Equal(t, 0, probeHealth(srv.Listener.Addr().String()), "healthcheck should return 0 when the health endpoint responds 200")
 }
 
-func TestRunHealthcheck_ReturnsOneOnUnhealthy(t *testing.T) {
+func TestProbeHealth_ReturnsOneOnUnhealthy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
-	setRequiredEnv(t, valid)
-	t.Setenv("METRICS_ADDR", srv.Listener.Addr().String())
-
-	assert.Equal(t, 1, runHealthcheck(), "healthcheck should return 1 when /healthz responds non-200")
+	assert.Equal(t, 1, probeHealth(srv.Listener.Addr().String()), "healthcheck should return 1 when the health endpoint responds non-200")
 }
 
-// TestRunHealthcheck_FallsBackToDefaultAddrOnConfigError covers the container HEALTHCHECK exec, which does not necessarily inherit the worker's environment.
-// A missing config must not stop the probe from reaching the worker, so this serves /healthz on the default address and asserts the probe still finds it.
-func TestRunHealthcheck_FallsBackToDefaultAddrOnConfigError(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:9090")
-	if err != nil {
-		t.Skipf("default metrics port is already in use on this machine: %v", err)
-	}
+// TestProbeHealth_ReturnsOneWhenUnreachable covers the case the container HEALTHCHECK actually exists for: the worker is not serving at all.
+func TestProbeHealth_ReturnsOneWhenUnreachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	addr := srv.Listener.Addr().String()
+	srv.Close()
 
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
-			w.WriteHeader(http.StatusOK)
-		}
-	}))
-	require.NoError(t, srv.Listener.Close())
-	srv.Listener = listener
-	srv.Start()
-	defer srv.Close()
-
-	// Blank out the required variables so config.Load fails and METRICS_ADDR is never consulted.
-	setRequiredEnv(t, blank)
-	t.Setenv("METRICS_ADDR", "")
-
-	assert.Equal(t, 0, runHealthcheck(), "healthcheck should fall back to the default address instead of failing on missing config")
+	assert.Equal(t, 1, probeHealth(addr), "healthcheck should return 1 when nothing is listening")
 }

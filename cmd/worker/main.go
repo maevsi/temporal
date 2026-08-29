@@ -56,23 +56,33 @@ func main() {
 	}
 }
 
-// runHealthcheck probes the running worker's /healthz endpoint and exits 0/1.
-// It attempts to load the full config first so METRICS_ADDR is respected,
-// but falls back to a default listen address rather than failing outright.
-// The container HEALTHCHECK exec may not have all env vars available.
+// defaultMetricsAddr mirrors the METRICS_ADDR default in internal/config, for the case where the probe cannot read the configuration at all.
+const defaultMetricsAddr = ":9090"
+
+// runHealthcheck probes the running worker's health endpoint and returns the process exit code.
 func runHealthcheck() int {
-	addr := ":9090"
-	cfg, err := config.Load()
-	if err == nil {
+	return probeHealth(healthcheckAddr())
+}
+
+// healthcheckAddr resolves the address the probe should connect to.
+// It prefers the configured METRICS_ADDR so a non-default port is respected, but falls back to the documented default rather than failing outright, because the container HEALTHCHECK exec may not have all of the worker's env vars available.
+// A host-less listen address such as ":9090" means "every interface", which is not something a client can dial, so it is resolved to loopback.
+func healthcheckAddr() string {
+	addr := defaultMetricsAddr
+	if cfg, err := config.Load(); err == nil && cfg.Metrics.Addr != "" {
 		addr = cfg.Metrics.Addr
 	}
 
 	if strings.HasPrefix(addr, ":") {
 		addr = "127.0.0.1" + addr
 	}
+	return addr
+}
 
+// probeHealth requests the worker's health endpoint at addr and returns the process exit code.
+func probeHealth(addr string) int {
 	httpClient := &http.Client{Timeout: 5 * time.Second}
-	resp, err := httpClient.Get(fmt.Sprintf("http://%s/healthz", addr))
+	resp, err := httpClient.Get(fmt.Sprintf("http://%s%s", addr, metrics.HealthPath))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "healthcheck: request failed:", err)
 		return 1
