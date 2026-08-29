@@ -21,7 +21,7 @@ import (
 // DBBackup walks SourceDir and uploads every file that is missing from the bucket or whose size differs from what is already there, mirroring the default (no --delete) behavior of `aws s3 sync`.
 //
 // Matching is done by comparing file size via HeadObject rather than the CLI's size+mtime heuristic: DB dump files get a fresh mtime on every regeneration regardless of whether their content changed, so an mtime check would force a re-upload on every single run and defeat the point of diffing. This is a deliberate simplification documented in the README.
-// Uploads go through the AWS SDK's S3 transfer manager (feature/s3/transfermanager), which automatically switches to a multipart upload for files above S3's single-PutObject limit.
+// Uploads go through the AWS SDK's S3 transfer manager (feature/s3/transfermanager), which automatically switches to a multipart upload for files above its MultipartUploadThreshold (16 MiB by default, so in practice every real dump file takes the multipart path).
 func (a *Activities) DBBackup(ctx context.Context, _ DBBackupInput) (DBBackupResult, error) {
 	logger := activity.GetLogger(ctx)
 	start := time.Now()

@@ -39,6 +39,9 @@ Everything is read from environment variables.
 There is no `/run/secrets/*` file-reading convention baked into this repo; that is a production deployment detail, not something the worker binary should know about.
 Whatever supplies the environment (a Docker Swarm `secrets:` mapping translated to env vars by the container runtime, a `.env` file in local dev, systemd's `EnvironmentFile=`) is responsible for turning maevsi's `vibetype_role_service_*`-style Postgres credentials, S3 credentials, and Sentry Crons URLs into the variables below.
 
+The one exception is the outbox table the purge runs against, `vibetype_private.outbox`, which is wired in `cmd/worker/main.go`.
+It is a property of the schema this worker is written for rather than of a deployment, so it is not worth an environment variable.
+
 ### Temporal
 
 | Variable               | Default                    | Notes                                             |
@@ -71,6 +74,9 @@ Whatever supplies the environment (a Docker Swarm `secrets:` mapping translated 
 | `S3_USE_PATH_STYLE`     | `false`   | Typically required by non-AWS S3-compatible endpoints.         |
 | `BACKUP_SOURCE_DIR`     | `/backups` | Local directory synced to S3.                                  |
 
+The credentials need `s3:PutObject` plus `s3:ListBucket` on the bucket.
+`s3:ListBucket` is what makes S3 answer `HeadObject` for a key that does not exist with a 404 instead of a 403; without it the worker cannot tell "object missing" apart from "access denied", and rather than re-uploading everything on every run it fails the sync so the permission problem is visible.
+
 ### Sentry Crons
 
 | Variable                    | Default   | Notes                                                                   |
@@ -95,7 +101,7 @@ Setting one to something unusable (no scheme, a scheme other than http/https, no
 | Variable        | Default    | Notes                                    |
 | ----------------- | ---------- | ------------------------------------------|
 | `METRICS_ADDR`     | `:9090`    | Listen address for the Prometheus HTTP server. |
-| `METRICS_PATH`     | `/metrics` |                                             |
+| `METRICS_PATH`     | `/metrics` | Anything but `/healthz`, which the worker serves itself. |
 
 ## Metrics
 
@@ -113,7 +119,8 @@ A Sentry Crons outage never fails the workflow itself: check-in failures are log
 
 Both activities get a `temporal.RetryPolicy` tuned to their shape rather than left at SDK defaults:
 
-- **DBBackup**: `StartToCloseTimeout: 30m`, `HeartbeatTimeout: 1m` (the activity heartbeats once per file so a dead worker is detected long before the 30-minute timeout), 3 attempts, exponential backoff from 30s up to a 5-minute cap.
+- **DBBackup**: `StartToCloseTimeout: 30m`, `HeartbeatTimeout: 2m`, 3 attempts, exponential backoff from 30s up to a 5-minute cap.
+  The activity heartbeats once per file and again on every completed upload part, so a dead worker is detected long before the 30-minute timeout while a single large upload still cannot outlast the heartbeat timeout on its own.
 - **OutboxPurge**: `StartToCloseTimeout: 2m`, 5 attempts, exponential backoff from 5s up to a 1-minute cap. Short because it's a single `DELETE`, more attempts because transient Postgres connectivity issues are the expected failure mode.
 - **SentryCheckIn**: `StartToCloseTimeout: 15s`, 3 attempts. Cheap and fast to retry, but never allowed to block the workflow for long.
 
@@ -128,12 +135,12 @@ Cadences are expressed as `client.ScheduleIntervalSpec` (a native Temporal Sched
 
 ## Development
 
-Requires Go (see `go.mod` for the pinned version) and, for integration testing, a local Temporal Server (e.g. `temporal server start-dev`) and Postgres instance.
+Requires Go (see `go.mod` for the minimum version) and, for integration testing, a local Temporal Server (e.g. `temporal server start-dev`) and Postgres instance.
 
 ```sh
 go build ./...
 go vet ./...
-go test ./...
+go test -race ./...
 gofmt -l .   # should print nothing
 ```
 
@@ -147,14 +154,12 @@ export TEMPORAL_HOST_PORT=127.0.0.1:7233
 go run ./cmd/worker
 ```
 
-This has been smoke-tested end to end against a real `temporal server start-dev` instance and a throwaway Postgres container.
-The worker starts, creates both Schedules, and a manually triggered `OutboxPurgeWorkflow` correctly deletes only the rows older than the configured retention window (verified against actual table contents) while emitting the expected `in_progress` -> `ok` check-in sequence and Prometheus metrics.
-
 ## Tests
 
 `internal/activities`, `internal/workflows`, `internal/schedule`, `internal/sentrycrons`, `internal/config`, and `internal/metrics` all have unit tests:
 
-- **Activities** are tested via Temporal's `testsuite.TestActivityEnvironment` against hand-rolled fakes of `activities.S3API` (no real AWS) and `activities.DBExecutor` (no real Postgres), covering the upload/skip diffing logic, the retention-interval formatting, and non-retryable config-error paths.
+- **Activities** are tested via Temporal's `testsuite.TestActivityEnvironment` against hand-rolled fakes of `activities.S3API` (no real AWS) and `activities.DBExecutor` (no real Postgres), covering the upload/skip diffing logic, S3 key building, the retention-interval formatting, and non-retryable config-error paths.
+  The S3 fake implements the multipart methods as well as `PutObject`, so the path a real dump file takes is covered rather than assumed, including that progress is reported mid-transfer to keep the activity heartbeating.
 - **Workflows** are tested via `testsuite.TestWorkflowEnvironment` with mocked activities, asserting the exact `in_progress` -> `ok`/`error` check-in sequence and that a Sentry Crons failure never fails the workflow.
 - **Schedules** are tested as pure functions returning `client.ScheduleOptions`, asserting they use `Intervals` (not `CronExpressions`).
 
@@ -166,22 +171,21 @@ Unlike this org's other services, the `production` stage is `FROM scratch`: a st
 Since `scratch` has no shell, `HEALTHCHECK` execs the binary itself with a `-healthcheck` flag, which loads the same config the running worker would and does a plain HTTP GET against its own `/healthz`.
 
 ```sh
-docker build --target test .        # lint + go vet + go test, no image needed for CI
+docker build --target test .        # go test with the race detector
+docker build --target lint .        # golangci-lint
 docker build --target production -t temporal .
 ```
-
-Both stages have been built and run locally: `--target test` runs the full lint/vet/test suite inside the container, and `--target production` produces a working ~44 MB non-root image that starts, loads config, and reports a clean multi-error message when required env vars are missing.
 
 ## Known simplifications
 
 - **DBBackup's diffing** compares local file size against S3's `HeadObject` `ContentLength` per file, rather than the AWS CLI's default size+mtime heuristic.
   Dump files get a fresh mtime on every regeneration regardless of whether their content changed, so an mtime check would force a re-upload on every single run and defeat the point of diffing entirely.
   Size-only is close enough for backup files that are either new or fully rewritten, but not byte-for-byte equivalent to `aws s3 sync`.
-- **DBBackup uploads through `aws-sdk-go-v2/feature/s3/transfermanager`**, which transparently switches to a multipart upload above S3's 5 GiB single-`PutObject` limit.
+- **DBBackup uploads through `aws-sdk-go-v2/feature/s3/transfermanager`**, which transparently switches to a multipart upload above its `MultipartUploadThreshold`.
+  That default is 16 MiB, not S3's 5 GiB single-`PutObject` limit, so in practice every real dump file is uploaded as 8 MiB parts.
 - **Schedules are bootstrapped once and never updated** by this worker.
   Changing a cadence via `DBBACKUP_SCHEDULE_EVERY`/`OUTBOX_PURGE_SCHEDULE_EVERY` after the Schedule already exists requires deleting it first (`temporal schedule delete`) or updating it out-of-band; this is a deliberate choice so an operator's manual Schedule edits are never silently overwritten on redeploy.
 
-## Repository status
+## License
 
-This repo has the `maevsi/temporal` remote configured but has not been pushed yet.
-Pushing, creating the GitHub repository itself, and configuring the `PERSONAL_ACCESS_TOKEN` secret CI needs are deliberate next steps left to whoever decides this implementation is the one to keep.
+[Apache-2.0](LICENSE).

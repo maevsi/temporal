@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go (see `go.mod` for the version)
+- Go (see `go.mod` for the minimum version)
 - Git
 - [golangci-lint](https://golangci-lint.run/) v2, for local linting matching CI (`docker build --target lint .` runs the same check without a local install)
 
@@ -16,7 +16,9 @@ go test -race ./...
 golangci-lint run ./...
 ```
 
-CI (`.github/workflows/ci.yaml`) runs the same three checks via the Docker `lint`, `test`, and `build` stages, gating the image build on all three passing. It enforces zero lint issues.
+CI (`.github/workflows/ci.yaml`) runs the same three checks via the Docker `lint`, `test`, and `build` stages, gating the image build on all three passing.
+The `test` stage runs the race detector too, so a data race fails CI rather than only showing up locally.
+Lint is enforced at zero issues.
 
 ## Commits
 
